@@ -1,0 +1,646 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SurfSense — Guía de uso</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'IBM Plex Mono', 'Courier New', monospace;
+    background: #080C14;
+    min-height: 100vh;
+    color: #CBD5E1;
+    padding: 28px 20px;
+  }
+  h1 { font-size: 20px; font-weight: 700; color: #F1F5F9; margin-bottom: 4px; }
+  .subtitle { font-size: 9px; color: #1E293B; letter-spacing: 0.3em; text-transform: uppercase; margin-bottom: 6px; }
+  .desc { font-size: 11px; color: #475569; }
+  .header { margin-bottom: 24px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 16px; }
+
+  .layout { display: grid; grid-template-columns: 200px 1fr; gap: 16px; }
+  @media (max-width: 700px) { .layout { grid-template-columns: 1fr; } }
+
+  /* Sidebar */
+  .sidebar { display: flex; flex-direction: column; gap: 4px; }
+  .nav-btn {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 6px;
+    padding: 8px 10px;
+    cursor: pointer;
+    text-align: left;
+    font-family: inherit;
+    transition: all 0.15s;
+    width: 100%;
+  }
+  .nav-btn:hover { background: rgba(255,255,255,0.03); }
+  .nav-btn.active { border-color: var(--c); background: rgba(var(--cr),0.1); }
+  .nav-num { font-size: 9px; font-weight: 700; }
+  .nav-title { font-size: 10px; font-weight: 600; color: #64748B; line-height: 1.3; margin-top: 3px; }
+  .nav-btn.active .nav-title { color: var(--c); }
+  .nav-time { font-size: 8px; color: #334155; margin-top: 2px; }
+
+  .ports-box {
+    margin-top: 8px;
+    border: 1px solid rgba(255,255,255,0.05);
+    border-radius: 6px;
+    padding: 10px;
+  }
+  .ports-title { font-size: 8px; color: #334155; letter-spacing: 0.15em; text-transform: uppercase; margin-bottom: 6px; }
+  .port-row { display: flex; justify-content: space-between; margin-bottom: 3px; }
+  .port-num { font-size: 8px; color: #6366F1; }
+  .port-desc { font-size: 8px; color: #334155; }
+
+  /* Content */
+  .step-header {
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    border: 1px solid rgba(var(--cr),0.25);
+    background: rgba(var(--cr),0.06);
+  }
+  .step-icon { font-size: 24px; }
+  .step-num { font-size: 9px; font-weight: 700; }
+  .step-time { font-size: 9px; color: #334155; }
+  .step-title { font-size: 14px; font-weight: 700; color: #F1F5F9; }
+  .step-intro { font-size: 11px; color: #64748B; line-height: 1.7; margin-bottom: 16px; }
+
+  /* Blocks */
+  .block {
+    margin-bottom: 12px;
+    padding: 12px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.05);
+  }
+  .block-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  pre {
+    font-size: 9px;
+    color: #94A3B8;
+    line-height: 1.7;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: inherit;
+  }
+  ul.info-list { padding-left: 16px; }
+  ul.info-list li { font-size: 10px; color: #94A3B8; line-height: 1.7; margin-bottom: 2px; }
+
+  .list-item {
+    font-size: 10px;
+    color: #94A3B8;
+    line-height: 1.6;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+  }
+  .list-item:last-child { border-bottom: none; }
+
+  .step-row { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 4px; }
+  .step-badge {
+    font-size: 8px;
+    padding: 2px 5px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    font-weight: 700;
+    margin-top: 1px;
+  }
+  .step-text { font-size: 10px; color: #94A3B8; line-height: 1.6; }
+
+  .warning-text { font-size: 10px; color: #F59E0B; line-height: 1.7; }
+
+  .connector-group { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+  .connector-name {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 3px;
+    flex-shrink: 0;
+    margin-top: 1px;
+    width: 110px;
+    text-align: center;
+  }
+  .connector-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+  .connector-tag {
+    font-size: 9px;
+    color: #94A3B8;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.07);
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+
+  .flow-wrap { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+  .flow-item {
+    font-size: 9px;
+    color: #94A3B8;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.07);
+    padding: 4px 8px;
+    border-radius: 4px;
+  }
+  .flow-arrow { color: #334155; font-size: 10px; }
+
+  /* Footer */
+  .footer {
+    margin-top: 24px;
+    padding: 10px 16px;
+    border: 1px solid rgba(255,255,255,0.04);
+    border-radius: 6px;
+    display: flex;
+    gap: 24px;
+    font-size: 9px;
+    color: #334155;
+    flex-wrap: wrap;
+  }
+
+  /* Hidden panels */
+  .panel { display: none; }
+  .panel.active { display: block; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="subtitle">Guía completa · Docker local · Uso personal + equipo</div>
+  <h1>SurfSense — Guía de uso</h1>
+  <p class="desc">De cero a knowledge base funcionando · 7 pasos</p>
+</div>
+
+<div class="layout">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+
+    <button class="nav-btn active" style="--c:#6366F1;--cr:99,102,241" onclick="show('install',this)">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span class="nav-num" style="color:#6366F1">01</span>
+        <span style="font-size:9px;color:#6366F1">🐳</span>
+      </div>
+      <div class="nav-title">Instalación Docker</div>
+      <div class="nav-time">⏱ ~5 min</div>
+    </button>
+
+    <button class="nav-btn" style="--c:#F59E0B;--cr:245,158,11" onclick="show('config',this)">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span class="nav-num" style="color:#F59E0B">02</span>
+        <span style="font-size:9px;color:#F59E0B">⚙️</span>
+      </div>
+      <div class="nav-title">Configuración .env</div>
+      <div class="nav-time">⏱ ~15 min</div>
+    </button>
+
+    <button class="nav-btn" style="--c:#10B981;--cr:16,185,129" onclick="show('searchspace',this)">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span class="nav-num" style="color:#10B981">03</span>
+        <span style="font-size:9px;color:#10B981">🗂️</span>
+      </div>
+      <div class="nav-title">Crear Search Spaces</div>
+      <div class="nav-time">⏱ ~5 min</div>
+    </button>
+
+    <button class="nav-btn" style="--c:#EC4899;--cr:236,72,153" onclick="show('connectors',this)">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span class="nav-num" style="color:#EC4899">04</span>
+        <span style="font-size:9px;color:#EC4899">🔌</span>
+      </div>
+      <div class="nav-title">Configurar Conectores</div>
+      <div class="nav-time">⏱ ~30 min</div>
+    </button>
+
+    <button class="nav-btn" style="--c:#8B5CF6;--cr:139,92,246" onclick="show('documents',this)">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span class="nav-num" style="color:#8B5CF6">05</span>
+        <span style="font-size:9px;color:#8B5CF6">📄</span>
+      </div>
+      <div class="nav-title">Subir Documentos</div>
+      <div class="nav-time">⏱ ~10 min</div>
+    </button>
+
+    <button class="nav-btn" style="--c:#06B6D4;--cr:6,182,212" onclick="show('chat',this)">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span class="nav-num" style="color:#06B6D4">06</span>
+        <span style="font-size:9px;color:#06B6D4">💬</span>
+      </div>
+      <div class="nav-title">Chatear con tu KB</div>
+      <div class="nav-time">⏱ Uso diario</div>
+    </button>
+
+    <button class="nav-btn" style="--c:#F97316;--cr:249,115,22" onclick="show('team',this)">
+      <div style="display:flex;align-items:center;gap:6px">
+        <span class="nav-num" style="color:#F97316">07</span>
+        <span style="font-size:9px;color:#F97316">👥</span>
+      </div>
+      <div class="nav-title">Colaboración Equipo</div>
+      <div class="nav-time">⏱ ~10 min setup</div>
+    </button>
+
+    <div class="ports-box">
+      <div class="ports-title">Puertos</div>
+      <div class="port-row"><span class="port-num">:3000</span><span class="port-desc">UI principal</span></div>
+      <div class="port-row"><span class="port-num">:8000</span><span class="port-desc">API / Swagger</span></div>
+      <div class="port-row"><span class="port-num">:5050</span><span class="port-desc">pgAdmin</span></div>
+      <div class="port-row"><span class="port-num">:5133</span><span class="port-desc">Electric SQL</span></div>
+    </div>
+  </div>
+
+  <!-- CONTENT -->
+  <div id="content">
+
+    <!-- PASO 01 -->
+    <div id="panel-install" class="panel active">
+      <div class="step-header" style="--cr:99,102,241;--c:#6366F1">
+        <span class="step-icon">🐳</span>
+        <div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="step-num" style="color:#6366F1">PASO 01</span>
+            <span class="step-time">· ~5 min</span>
+          </div>
+          <div class="step-title">Instalación Docker</div>
+        </div>
+      </div>
+      <div class="step-intro">Dos modos de instalación. Para empezar rápido: imagen all-in-one. Para producción: docker-compose.</div>
+
+      <div class="block">
+        <div class="block-label" style="color:#6366F1">Modo rápido — Un solo comando</div>
+        <pre># Linux / macOS
+docker run -d \
+  -p 3000:3000 \
+  -p 8000:8000 \
+  -p 5133:5133 \
+  -v surfsense-data:/data \
+  --name surfsense \
+  --restart unless-stopped \
+  ghcr.io/modsetter/surfsense:latest
+
+# Con embeddings OpenAI (opcional, mejor calidad)
+docker run -d \
+  -p 3000:3000 -p 8000:8000 -p 5133:5133 \
+  -v surfsense-data:/data \
+  -e EMBEDDING_MODEL=openai://text-embedding-ada-002 \
+  -e OPENAI_API_KEY=sk-... \
+  --name surfsense \
+  --restart unless-stopped \
+  ghcr.io/modsetter/surfsense:latest</pre>
+      </div>
+
+      <div class="block">
+        <div class="block-label" style="color:#6366F1">Modo producción — Docker Compose (team / empresa)</div>
+        <pre>git clone https://github.com/MODSetter/SurfSense
+cd SurfSense
+cp .env.example .env
+# Edita .env con tus valores (ver paso 02)
+docker-compose up -d --build</pre>
+      </div>
+
+      <div class="block">
+        <div class="block-label" style="color:#6366F1">Acceso tras instalación</div>
+        <ul class="info-list">
+          <li>UI principal → http://localhost:3000</li>
+          <li>API backend → http://localhost:8000</li>
+          <li>API docs (Swagger) → http://localhost:8000/docs</li>
+          <li>pgAdmin (gestión DB) → http://localhost:5050</li>
+        </ul>
+      </div>
+
+      <div class="block">
+        <div class="block-label" style="color:#6366F1">Comandos útiles de gestión</div>
+        <pre>docker logs -f surfsense        # Ver logs en tiempo real
+docker stop surfsense           # Parar
+docker start surfsense          # Arrancar
+docker pull ghcr.io/modsetter/surfsense:latest
+docker rm surfsense && docker run ...  # Actualizar</pre>
+      </div>
+    </div>
+
+    <!-- PASO 02 -->
+    <div id="panel-config" class="panel">
+      <div class="step-header" style="--cr:245,158,11;--c:#F59E0B">
+        <span class="step-icon">⚙️</span>
+        <div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="step-num" style="color:#F59E0B">PASO 02</span>
+            <span class="step-time">· ~15 min</span>
+          </div>
+          <div class="step-title">Configuración .env</div>
+        </div>
+      </div>
+      <div class="step-intro">Las variables críticas que debes configurar antes de arrancar. Sin ellas, funciona en modo degradado.</div>
+
+      <div class="block">
+        <div class="block-label" style="color:#F59E0B">.env — Variables esenciales</div>
+        <pre># ── FRONTEND ──────────────────────────────
+FRONTEND_PORT=3000
+NEXT_PUBLIC_API_URL=http://localhost:8000
+
+# ── BACKEND ───────────────────────────────
+BACKEND_PORT=8000
+SECRET_KEY=cambia-esto-por-algo-aleatorio-seguro
+
+# ── BASE DE DATOS ─────────────────────────
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=pon-una-password-segura
+POSTGRES_DB=surfsense
+POSTGRES_PORT=5432
+
+# ── LLM PRINCIPAL (elige uno) ─────────────
+# Opción A: Claude (recomendado)
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Opción B: OpenAI
+# OPENAI_API_KEY=sk-...
+
+# Opción C: Local con Ollama
+# OLLAMA_BASE_URL=http://localhost:11434
+
+# ── EMBEDDINGS ────────────────────────────
+EMBEDDING_MODEL=local://nomic-ai/nomic-embed-text-v1.5
+# EMBEDDING_MODEL=openai://text-embedding-3-small
+
+# ── BÚSQUEDA WEB (opcional) ───────────────
+TAVILY_API_KEY=tvly-...
+# LINKUP_API_KEY=...
+
+# ── PROCESADO DE FICHEROS ─────────────────
+UNSTRUCTURED_API_KEY=...   # platform.unstructured.io</pre>
+      </div>
+
+      <div class="block">
+        <div class="block-label" style="color:#F59E0B">⚠️ Decisión crítica: LLM local vs API</div>
+        <div class="warning-text">⚠️ Para segundo cerebro personal con datos sensibles → Ollama local (llama3, mistral). Para calidad máxima en empresa → Claude API o GPT-4o. Los embeddings locales (nomic-embed) son suficientemente buenos para empezar sin coste.</div>
+      </div>
+    </div>
+
+    <!-- PASO 03 -->
+    <div id="panel-searchspace" class="panel">
+      <div class="step-header" style="--cr:16,185,129;--c:#10B981">
+        <span class="step-icon">🗂️</span>
+        <div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="step-num" style="color:#10B981">PASO 03</span>
+            <span class="step-time">· ~5 min</span>
+          </div>
+          <div class="step-title">Crear Search Spaces</div>
+        </div>
+      </div>
+      <div class="step-intro">El Search Space es la unidad fundamental de SurfSense — un workspace aislado con sus propios docs, conectores, chats y miembros. Piénsalo como un 'proyecto' o 'contexto' de conocimiento.</div>
+
+      <div class="block">
+        <div class="block-label" style="color:#10B981">Estructura recomendada</div>
+        <div class="list-item">🧠 'Mi cerebro' — Notas personales, libros, artículos, PDFs propios</div>
+        <div class="list-item">💼 'Trabajo' — Docs del equipo, wikis, decisiones técnicas</div>
+        <div class="list-item">🚀 'Proyecto Alpha' — Knowledge base específica de un proyecto</div>
+        <div class="list-item">📚 'Investigación' — Papers, referencias, recursos de aprendizaje</div>
+      </div>
+
+      <div class="block">
+        <div class="block-label" style="color:#10B981">Cómo crear un Search Space</div>
+        <div class="step-row"><span class="step-badge" style="color:#10B981;background:rgba(16,185,129,0.15)">1</span><span class="step-text">Ir a http://localhost:3000 → Login</span></div>
+        <div class="step-row"><span class="step-badge" style="color:#10B981;background:rgba(16,185,129,0.15)">2</span><span class="step-text">Dashboard → botón 'New Search Space'</span></div>
+        <div class="step-row"><span class="step-badge" style="color:#10B981;background:rgba(16,185,129,0.15)">3</span><span class="step-text">Nombre + descripción + configurar LLM para este espacio</span></div>
+        <div class="step-row"><span class="step-badge" style="color:#10B981;background:rgba(16,185,129,0.15)">4</span><span class="step-text">Opcionalmente: invitar miembros con su rol (Admin / Editor / Viewer)</span></div>
+        <div class="step-row"><span class="step-badge" style="color:#10B981;background:rgba(16,185,129,0.15)">5</span><span class="step-text">Listo — ya puedes añadir conectores y documentos</span></div>
+      </div>
+
+      <div class="block">
+        <div class="block-label" style="color:#10B981">Tip: Obsidian → SurfSense</div>
+        <ul class="info-list">
+          <li>Conecta tu vault de Obsidian usando 'Watch Local Folder'</li>
+          <li>SurfSense detecta cambios automáticamente y re-indexa</li>
+          <li>Tus notas Markdown quedan buscables semánticamente</li>
+          <li>El mejor bridge entre segundo cerebro personal y RAG</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- PASO 04 -->
+    <div id="panel-connectors" class="panel">
+      <div class="step-header" style="--cr:236,72,153;--c:#EC4899">
+        <span class="step-icon">🔌</span>
+        <div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="step-num" style="color:#EC4899">PASO 04</span>
+            <span class="step-time">· ~30 min</span>
+          </div>
+          <div class="step-title">Configurar Conectores</div>
+        </div>
+      </div>
+      <div class="step-intro">Los conectores son el corazón de SurfSense. Cada uno requiere sus credenciales y configura la frecuencia de sincronización.</div>
+
+      <div class="block">
+        <div class="block-label" style="color:#EC4899">Conectores disponibles (27+)</div>
+        <div class="connector-group">
+          <span class="connector-name" style="color:#6366F1;background:rgba(99,102,241,0.1)">Búsqueda web</span>
+          <div class="connector-tags">
+            <span class="connector-tag">Tavily</span><span class="connector-tag">LinkUp</span>
+            <span class="connector-tag">SearXNG (self-hosted)</span><span class="connector-tag">Baidu</span>
+          </div>
+        </div>
+        <div class="connector-group">
+          <span class="connector-name" style="color:#10B981;background:rgba(16,185,129,0.1)">Almacenamiento</span>
+          <div class="connector-tags">
+            <span class="connector-tag">Google Drive</span><span class="connector-tag">OneDrive</span>
+            <span class="connector-tag">Dropbox</span><span class="connector-tag">Local Folder ⭐</span>
+          </div>
+        </div>
+        <div class="connector-group">
+          <span class="connector-name" style="color:#F59E0B;background:rgba(245,158,11,0.1)">Comunicación</span>
+          <div class="connector-tags">
+            <span class="connector-tag">Slack</span><span class="connector-tag">MS Teams</span>
+            <span class="connector-tag">Discord</span><span class="connector-tag">Gmail</span>
+          </div>
+        </div>
+        <div class="connector-group">
+          <span class="connector-name" style="color:#EC4899;background:rgba(236,72,153,0.1)">Dev / IT</span>
+          <div class="connector-tags">
+            <span class="connector-tag">GitHub ⭐</span><span class="connector-tag">Jira ⭐</span>
+            <span class="connector-tag">Linear</span><span class="connector-tag">ClickUp</span>
+            <span class="connector-tag">Confluence ⭐</span><span class="connector-tag">BookStack</span>
+          </div>
+        </div>
+        <div class="connector-group">
+          <span class="connector-name" style="color:#94A3B8;background:rgba(100,116,139,0.1)">Productividad</span>
+          <div class="connector-tags">
+            <span class="connector-tag">Notion ⭐</span><span class="connector-tag">Airtable</span>
+            <span class="connector-tag">Google Calendar</span><span class="connector-tag">YouTube</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="block-label" style="color:#EC4899">Flujo de configuración (ej: GitHub)</div>
+        <div class="step-row"><span class="step-badge" style="color:#EC4899;background:rgba(236,72,153,0.15)">1</span><span class="step-text">Settings → Connectors → 'Add Connector'</span></div>
+        <div class="step-row"><span class="step-badge" style="color:#EC4899;background:rgba(236,72,153,0.15)">2</span><span class="step-text">Seleccionar GitHub → introducir Personal Access Token</span></div>
+        <div class="step-row"><span class="step-badge" style="color:#EC4899;background:rgba(236,72,153,0.15)">3</span><span class="step-text">Seleccionar repos a indexar (puedes filtrar por org/repo)</span></div>
+        <div class="step-row"><span class="step-badge" style="color:#EC4899;background:rgba(236,72,153,0.15)">4</span><span class="step-text">Configurar frecuencia: real-time (webhook) / horaria / diaria</span></div>
+        <div class="step-row"><span class="step-badge" style="color:#EC4899;background:rgba(236,72,153,0.15)">5</span><span class="step-text">Click 'Index Now' para primera ingesta inmediata</span></div>
+        <div class="step-row"><span class="step-badge" style="color:#EC4899;background:rgba(236,72,153,0.15)">6</span><span class="step-text">Verificar en 'Documents' que los ficheros aparecen indexados</span></div>
+      </div>
+
+      <div class="block">
+        <div class="block-label" style="color:#EC4899">Credenciales que necesitarás</div>
+        <pre># GitHub → Personal Access Token (PAT)
+# github.com → Settings → Developer settings → PAT
+# Permisos: repo (read), read:org
+
+# Notion → Integration Token
+# notion.com/my-integrations → Create integration
+
+# Slack → OAuth App
+# api.slack.com/apps → Create app → OAuth tokens
+# Permisos: channels:history, files:read, search:read
+
+# Google Drive → Service Account o OAuth
+# console.cloud.google.com → APIs → Drive API → Credentials
+
+# Jira → API Token
+# id.atlassian.com → Security → API tokens</pre>
+      </div>
+    </div>
+
+    <!-- PASO 05 -->
+    <div id="panel-documents" class="panel">
+      <div class="step-header" style="--cr:139,92,246;--c:#8B5CF6">
+        <span class="step-icon">📄</span>
+        <div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="step-num" style="color:#8B5CF6">PASO 05</span>
+            <span class="step-time">· ~10 min</span>
+          </div>
+          <div class="step-title">Subir Documentos</div>
+        </div>
+      </div>
+      <div class="step-intro">Además de los conectores automáticos, puedes subir documentos manualmente. SurfSense soporta 50+ formatos.</div>
+
+      <div class="block">
+        <div class="block-label" style="color:#8B5CF6">Pipeline interno de procesado</div>
+        <div class="flow-wrap">
+          <span class="flow-item">Upload / Fetch</span><span class="flow-arrow">→</span>
+          <span class="flow-item">ETL Service</span><span class="flow-arrow">→</span>
+          <span class="flow-item">Markdown</span><span class="flow-arrow">→</span>
+          <span class="flow-item">Chunking</span><span class="flow-arrow">→</span>
+          <span class="flow-item">Embeddings</span><span class="flow-arrow">→</span>
+          <span class="flow-item">PostgreSQL + pgvector</span>
+        </div>
+      </div>
+
+      <div class="block">
+        <div class="block-label" style="color:#8B5CF6">Formatos soportados</div>
+        <ul class="info-list">
+          <li>Documentos: PDF, DOCX, PPTX, XLSX, ODT, RTF</li>
+          <li>Texto: MD, TXT, HTML, CSV, JSON, XML</li>
+          <li>Código: py, js, ts, go, rs, java, cpp, y más</li>
+          <li>Multimedia: imágenes (con OCR), audio (transcripción)</li>
+        </ul>
+      </div>
+
+      <div class="block">
+        <div class="block-label" style="color:#8B5CF6">⚠️ PDFs complejos con tablas o columnas</div>
+        <div class="warning-text">⚠️ Para PDFs con tablas, formularios o layout complejo, configura UNSTRUCTURED_API_KEY en el .env. Sin ello, la extracción de PDFs complejos será deficiente. El plan gratuito de Unstructured.io tiene 1000 páginas/mes.</div>
+      </div>
+    </div>
+
+    <!-- PASO 06 -->
+    <div id="panel-chat" class="panel">
+      <div class="step-header" style="--cr:6,182,212;--c:#06B6D4">
+        <span class="step-icon">💬</span>
+        <div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="step-num" style="color:#06B6D4">PASO 06</span>
+            <span class="step-time">· Uso diario</span>
+          </div>
+          <div class="step-title">Chatear con tu Knowledge Base</div>
+        </div>
+      </div>
+      <div class="step-intro">Tres modos de interacción: Chat RAG (documentos propios), Researcher (web + docs), y Chat colaborativo en equipo.</div>
+
+      <div class="block">
+        <div class="block-label" style="color:#06B6D4">Modos de chat disponibles</div>
+        <div class="list-item">🧠 Chat RAG — Solo tu knowledge base. Respuestas con citas exactas al doc/chunk fuente.</div>
+        <div class="list-item">🔍 Researcher — Combina tu knowledge base + búsqueda web en tiempo real.</div>
+        <div class="list-item">👥 Chat compartido — Equipo chatea en tiempo real en el mismo hilo con menciones.</div>
+        <div class="list-item">🎙️ Podcast — Genera audio de 3 min desde cualquier conversación o documento.</div>
+      </div>
+
+      <div class="block">
+        <div class="block-label" style="color:#06B6D4">Tips para mejores resultados</div>
+        <div class="step-row"><span class="step-badge" style="color:#06B6D4;background:rgba(6,182,212,0.15)">1</span><span class="step-text">Sé específico — 'explícame el módulo de auth de proyecto-x' > 'explícame auth'</span></div>
+        <div class="step-row"><span class="step-badge" style="color:#06B6D4;background:rgba(6,182,212,0.15)">2</span><span class="step-text">Usa Researcher cuando necesites info actual + tu contexto interno</span></div>
+        <div class="step-row"><span class="step-badge" style="color:#06B6D4;background:rgba(6,182,212,0.15)">3</span><span class="step-text">Revisa siempre las citas — SurfSense muestra el chunk exacto de donde viene cada respuesta</span></div>
+        <div class="step-row"><span class="step-badge" style="color:#06B6D4;background:rgba(6,182,212,0.15)">4</span><span class="step-text">Si la respuesta es mala, verifica que el documento esté indexado en Documents</span></div>
+        <div class="step-row"><span class="step-badge" style="color:#06B6D4;background:rgba(6,182,212,0.15)">5</span><span class="step-text">Para código: pregunta por función/clase ('cómo funciona refreshToken()')</span></div>
+      </div>
+    </div>
+
+    <!-- PASO 07 -->
+    <div id="panel-team" class="panel">
+      <div class="step-header" style="--cr:249,115,22;--c:#F97316">
+        <span class="step-icon">👥</span>
+        <div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="step-num" style="color:#F97316">PASO 07</span>
+            <span class="step-time">· ~10 min setup</span>
+          </div>
+          <div class="step-title">Colaboración en Equipo</div>
+        </div>
+      </div>
+      <div class="step-intro">Para el caso empresa: invitar al equipo, asignar roles y compartir Search Spaces.</div>
+
+      <div class="block">
+        <div class="block-label" style="color:#F97316">Roles disponibles</div>
+        <div class="list-item">Admin — Control total: gestión de miembros, conectores, LLM configs, CRUD docs</div>
+        <div class="list-item">Editor — Añadir docs y conectores, crear chats, NO gestionar miembros</div>
+        <div class="list-item">Viewer — Solo leer y chatear, NO modificar la knowledge base</div>
+      </div>
+
+      <div class="block">
+        <div class="block-label" style="color:#F97316">Flujo de invitación</div>
+        <div class="step-row"><span class="step-badge" style="color:#F97316;background:rgba(249,115,22,0.15)">1</span><span class="step-text">Search Space → 'Manage Members' → 'Create Invite'</span></div>
+        <div class="step-row"><span class="step-badge" style="color:#F97316;background:rgba(249,115,22,0.15)">2</span><span class="step-text">Configurar: rol asignado, límite de usos, fecha de expiración</span></div>
+        <div class="step-row"><span class="step-badge" style="color:#F97316;background:rgba(249,115,22,0.15)">3</span><span class="step-text">Copiar link de invitación y enviarlo al teammate</span></div>
+        <div class="step-row"><span class="step-badge" style="color:#F97316;background:rgba(249,115,22,0.15)">4</span><span class="step-text">El teammate se registra y el Search Space queda compartido automáticamente</span></div>
+        <div class="step-row"><span class="step-badge" style="color:#F97316;background:rgba(249,115,22,0.15)">5</span><span class="step-text">Activar 'Make chat shared' para colaboración en tiempo real</span></div>
+      </div>
+
+      <div class="block">
+        <div class="block-label" style="color:#F97316">Acceso desde otros portátiles (VPN)</div>
+        <ul class="info-list">
+          <li>Averigua tu IP de VPN: ip addr | grep "inet " (Mac/Linux) o ipconfig (Windows)</li>
+          <li>Configura NEXT_PUBLIC_API_URL=http://TU_IP_VPN:8000 en el .env</li>
+          <li>El equipo accede por navegador a http://TU_IP_VPN:3000</li>
+          <li>Sin instalar nada en los portátiles del equipo — solo un navegador</li>
+        </ul>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</div><!-- /layout -->
+
+<div class="footer">
+  <span>📖 Docs → surfsense.com/docs</span>
+  <span>💬 Discord → discord.gg/ejRNvftDp9</span>
+  <span>🐛 Issues → github.com/MODSetter/SurfSense</span>
+  <span>🗺️ Roadmap → Deep Agents + MCP Server en camino</span>
+</div>
+
+<script>
+function show(id, btn) {
+  // Hide all panels
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  // Remove active from all buttons
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  // Show selected
+  document.getElementById('panel-' + id).classList.add('active');
+  btn.classList.add('active');
+}
+</script>
+</body>
+</html>
