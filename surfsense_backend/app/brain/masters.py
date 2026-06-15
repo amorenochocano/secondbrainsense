@@ -757,7 +757,7 @@ _SEED_ENTITY_HINTS = [
         ],
         "examples": [
             "ingest_data", "transform_records", "DataProcessor", "RAGPipeline",
-            "load_config", "from brain.vocabulary import",
+            "load_config", "from app.brain.vocabulary import",
         ],
     },
     # ── AI Agent definitions (.agent.md / .prompt.md) ────────────────────

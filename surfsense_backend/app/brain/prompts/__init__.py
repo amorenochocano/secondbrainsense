@@ -25,7 +25,7 @@ import os as _os
 import re as _re
 import json as _json
 
-from brain.vocabulary import VOCAB_LIST
+from app.brain.vocabulary import VOCAB_LIST
 
 
 # ===========================================================================

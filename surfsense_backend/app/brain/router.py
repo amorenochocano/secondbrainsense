@@ -21,7 +21,7 @@ import ollama
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchAny
 
-from brain.collections import BRAIN, KNOWLEDGE, CODE, COLLECTION_CONFIG
+from app.brain.collections import BRAIN, KNOWLEDGE, CODE, COLLECTION_CONFIG
 
 log = logging.getLogger(__name__)
 

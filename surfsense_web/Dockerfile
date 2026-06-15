@@ -3,9 +3,16 @@
 FROM node:20-alpine AS base
 
 # Certificado corporativo Enagás/Netskope (proxy SSL)
-# El archivo se pasa desde el contexto de build raiz del monorepo
-COPY netskope-ca-bundle.crt /usr/local/share/ca-certificates/corp-root.crt
-RUN apk add --no-cache ca-certificates && update-ca-certificates
+# El archivo se pasa desde el contexto adicional repo_root (raiz del monorepo)
+# En dev: additional_contexts.repo_root = .. (docker-compose.dev.yml)
+# En CI:  --build-context repo_root=.
+COPY --from=repo_root netskope-ca-bundle.crt /tmp/corp-root.crt
+# Inyectar el cert corporativo en el bundle del sistema SIN necesitar red ni apk.
+# Alpine tiene /etc/ssl/certs/ca-certificates.crt en el base image de node:20-alpine.
+# Append directo → disponible para todo proceso de red posterior (apk, pip, node...).
+RUN cat /tmp/corp-root.crt >> /etc/ssl/certs/ca-certificates.crt && \
+    mkdir -p /usr/local/share/ca-certificates && \
+    cp /tmp/corp-root.crt /usr/local/share/ca-certificates/corp-root.crt
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 
 # Install dependencies only when needed

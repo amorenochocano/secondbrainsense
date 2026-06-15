@@ -38,7 +38,7 @@ import logging
 import datetime
 import json
 
-from brain.prompts import (
+from app.brain.prompts import (
     get_focused_synthesis_prompt,
     get_overview_synthesis_prompt,
     get_chunk_synthesis_prompt,
@@ -51,9 +51,9 @@ from brain.prompts import (
     get_synthesis_calls,
     explain_plan,
 )
-from brain.passport_builder import build_partial_passport
-from brain.vocabulary import normalize_tags
-from brain.llm_client import llm_client, DEFAULT_PROVIDER, SYNTHESIS_MODEL as _DEFAULT_SYNTHESIS_MODEL
+from app.brain.passport_builder import build_partial_passport
+from app.brain.vocabulary import normalize_tags
+from app.brain.llm_client import llm_client, DEFAULT_PROVIDER, SYNTHESIS_MODEL as _DEFAULT_SYNTHESIS_MODEL
 
 log = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ def _get_model_profile(model_name: str, provider: str):
     en ese caso synthesizer se comporta exactamente como v2.5.
     """
     try:
-        from brain.model_profiles import get_profile
+        from app.brain.model_profiles import get_profile
         if provider in _LARGE_CONTEXT_PROVIDERS:
             return get_profile("claude-sonnet")   # siempre perfil claude para APIs
         return get_profile(model_name)
@@ -333,7 +333,7 @@ class DocumentSynthesizer:
             chunk_size    = profile.chunk_size
         else:
             # Comportamiento v2.5
-            from brain.prompts import SYNTHESIS_CHUNK_TRIGGER, SYNTHESIS_CHUNK_SIZE
+            from app.brain.prompts import SYNTHESIS_CHUNK_TRIGGER, SYNTHESIS_CHUNK_SIZE
             if effective_provider in _LARGE_CONTEXT_PROVIDERS:
                 _env_key = f"SYNTHESIS_CHUNK_TRIGGER_{effective_provider.upper()}"
                 chunk_trigger = int(os.getenv(_env_key, "99999"))
@@ -557,7 +557,7 @@ class DocumentSynthesizer:
         Calls B..N (chunks): subsecciones ### de Core Knowledge por fragmento.
         Compose: merge determinístico Python.
         """
-        from brain.prompts import SYNTHESIS_OVERVIEW_EXCERPT
+        from app.brain.prompts import SYNTHESIS_OVERVIEW_EXCERPT
 
         # Excerpt para la call de overview
         # Para perfiles small/medium usamos un extracto más corto
@@ -811,7 +811,7 @@ class DocumentSynthesizer:
         return result
 
     def _minimal_passport(self, source: str, file_type: str, metadata: dict) -> dict:
-        from brain.passport_builder import _slugify
+        from app.brain.passport_builder import _slugify
         slug = _slugify(source)
         kb_id = f"kb_{slug}"
         now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")

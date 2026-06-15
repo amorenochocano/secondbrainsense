@@ -13,8 +13,10 @@ FROM python:3.12-slim AS base
 WORKDIR /app
 
 # Certificado corporativo Enagás/Netskope (proxy SSL)
-# El archivo se pasa desde el contexto de build raiz del monorepo
-COPY netskope-ca-bundle.crt /usr/local/share/ca-certificates/corp-root.crt
+# El archivo se pasa desde el contexto adicional repo_root (raiz del monorepo)
+# En dev: additional_contexts.repo_root = .. (docker-compose.dev.yml)
+# En CI:  --build-context repo_root=.
+COPY --from=repo_root netskope-ca-bundle.crt /usr/local/share/ca-certificates/corp-root.crt
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \

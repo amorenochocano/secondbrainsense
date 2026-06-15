@@ -27,8 +27,8 @@ import logging
 import datetime
 from pathlib import Path
 
-from brain.vocabulary import match_text_to_vocab, normalize_tags, in_vocab
-from brain.masters import classify_document
+from app.brain.vocabulary import match_text_to_vocab, normalize_tags, in_vocab
+from app.brain.masters import classify_document
 
 log = logging.getLogger(__name__)
 

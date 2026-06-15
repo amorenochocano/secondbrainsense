@@ -1,28 +1,36 @@
 # =============================================================================
-# SurfSense — Development Docker Compose
+# SecondBrainSense — Development Docker Compose
 # =============================================================================
 # Usage (from repo root):
 #   docker compose -f docker/docker-compose.dev.yml up --build
 #
-# This file builds from source and includes dev tools like pgAdmin.
-# For production with prebuilt images, use docker/docker-compose.yml instead.
+# Este stack construye las imagenes desde el codigo fuente (pyproject.toml)
+# e incluye hot-reload y herramientas de desarrollo (pgAdmin, OpenTelemetry).
+# Es el stack de trabajo para F1, F2, F3...
+# Para el stack de referencia SurfSense vanilla usa docker-compose.yml
 # =============================================================================
 
-name: surfsense-dev
+name: secondbrainsense-dev
 
 x-backend-build: &backend-build
-  # Contexto en la raíz del monorepo para que el cert corporativo sea accesible
-  context: ..
-  dockerfile: surfsense_backend/Dockerfile
+  # Contexto en surfsense_backend para que COPY pyproject.toml, COPY . . etc. funcionen.
+  # El cert corporativo se inyecta via additional_contexts (no necesita estar en surfsense_backend/).
+  context: ../surfsense_backend
+  dockerfile: Dockerfile
+  additional_contexts:
+    repo_root: ..
   args:
     EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
 
 x-frontend-build: &frontend-build
-  context: ..
-  dockerfile: surfsense_web/Dockerfile
+  context: ../surfsense_web
+  dockerfile: Dockerfile
+  additional_contexts:
+    repo_root: ..
 
 services:
   db:
+    container_name: sbs-dev-db
     image: pgvector/pgvector:pg17
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
@@ -44,20 +52,28 @@ services:
   # service for the full rationale. Builds from the same backend context as
   # the dev backend/celery services.
   migrations:
+    container_name: sbs-dev-migrations
     build: *backend-build
+    volumes:
+      - ../netskope-ca-bundle.crt:/certs/corp-root.crt:ro
     env_file:
-      - ../surfsense_backend/.env
+      - .env
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@${DB_HOST:-db}:${DB_PORT:-5432}/${DB_NAME:-surfsense}}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-surfsense}:${DB_PASSWORD:-surfsense}@${DB_HOST:-db}:${DB_PORT:-5432}/${DB_NAME:-surfsense}?ssl=disable}
       - PYTHONPATH=/app
       - SERVICE_ROLE=migrate
       - MIGRATION_TIMEOUT=${MIGRATION_TIMEOUT:-900}
+      - SSL_CERT_FILE=/certs/corp-root.crt
+      - REQUESTS_CA_BUNDLE=/certs/corp-root.crt
+      - CURL_CA_BUNDLE=/certs/corp-root.crt
+      - PGSSLMODE=disable
     depends_on:
       db:
         condition: service_healthy
     restart: "no"
 
   pgadmin:
+    container_name: sbs-dev-pgadmin
     image: dpage/pgadmin4
     ports:
       - "${PGADMIN_PORT:-5050}:80"
@@ -70,6 +86,7 @@ services:
       - db
 
   redis:
+    container_name: sbs-dev-redis
     image: redis:8-alpine
     ports:
       - "${REDIS_PORT:-6379}:6379"
@@ -83,6 +100,7 @@ services:
       retries: 5
 
   otel-lgtm:
+    container_name: sbs-dev-otel
     image: grafana/otel-lgtm:latest
     ports:
       - "${OTEL_GRPC_PORT:-4317}:4317"
@@ -92,6 +110,7 @@ services:
     restart: unless-stopped
 
   searxng:
+    container_name: sbs-dev-searxng
     image: searxng/searxng:2026.3.13-3c1f68c59
     ports:
       - "${SEARXNG_PORT:-8888}:8080"
@@ -106,18 +125,20 @@ services:
       retries: 5
 
   backend:
+    container_name: sbs-dev-backend
     build: *backend-build
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "${BACKEND_PORT:-8929}:8000"
     volumes:
       - ../surfsense_backend/app:/app/app
       - shared_temp:/shared_tmp
+      - ../netskope-ca-bundle.crt:/certs/corp-root.crt:ro
     env_file:
-      - ../surfsense_backend/.env
+      - .env
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@${DB_HOST:-db}:${DB_PORT:-5432}/${DB_NAME:-surfsense}}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-surfsense}:${DB_PASSWORD:-surfsense}@${DB_HOST:-db}:${DB_PORT:-5432}/${DB_NAME:-surfsense}?ssl=disable}
       - CELERY_BROKER_URL=${REDIS_URL:-redis://redis:6379/0}
       - CELERY_RESULT_BACKEND=${REDIS_URL:-redis://redis:6379/0}
       - REDIS_APP_URL=${REDIS_URL:-redis://redis:6379/0}
@@ -131,6 +152,11 @@ services:
       - NEXT_FRONTEND_URL=${NEXT_FRONTEND_URL:-http://localhost:3000}
       - SEARXNG_DEFAULT_HOST=${SEARXNG_DEFAULT_HOST:-http://searxng:8080}
       - WHATSAPP_BRIDGE_URL=${WHATSAPP_BRIDGE_URL:-http://whatsapp-bridge:9929}
+      - SSL_CERT_FILE=/certs/corp-root.crt
+      - REQUESTS_CA_BUNDLE=/certs/corp-root.crt
+      - CURL_CA_BUNDLE=/certs/corp-root.crt
+      - NODE_EXTRA_CA_CERTS=/certs/corp-root.crt
+      - PGSSLMODE=disable
       # Daytona Sandbox – uncomment and set credentials to enable cloud code execution
       # - DAYTONA_SANDBOX_ENABLED=TRUE
       # - DAYTONA_API_KEY=${DAYTONA_API_KEY:-}
@@ -173,22 +199,28 @@ services:
       retries: 5
 
   celery_worker:
+    container_name: sbs-dev-celery-worker
     build: *backend-build
     volumes:
       - ../surfsense_backend/app:/app/app
       - shared_temp:/shared_tmp
+      - ../netskope-ca-bundle.crt:/certs/corp-root.crt:ro
     env_file:
-      - ../surfsense_backend/.env
+      - .env
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@${DB_HOST:-db}:${DB_PORT:-5432}/${DB_NAME:-surfsense}}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-surfsense}:${DB_PASSWORD:-surfsense}@${DB_HOST:-db}:${DB_PORT:-5432}/${DB_NAME:-surfsense}?ssl=disable}
       - CELERY_BROKER_URL=${REDIS_URL:-redis://redis:6379/0}
       - CELERY_RESULT_BACKEND=${REDIS_URL:-redis://redis:6379/0}
       - REDIS_APP_URL=${REDIS_URL:-redis://redis:6379/0}
       - CELERY_TASK_DEFAULT_QUEUE=surfsense
       - PYTHONPATH=/app
       - SEARXNG_DEFAULT_HOST=${SEARXNG_DEFAULT_HOST:-http://searxng:8080}
+      - SSL_CERT_FILE=/certs/corp-root.crt
+      - REQUESTS_CA_BUNDLE=/certs/corp-root.crt
+      - CURL_CA_BUNDLE=/certs/corp-root.crt
+      - PGSSLMODE=disable
       - SERVICE_ROLE=worker
     depends_on:
       db:
@@ -201,15 +233,21 @@ services:
         condition: service_healthy
 
   celery_beat:
+    container_name: sbs-dev-celery-beat
     build: *backend-build
+    volumes:
+      - ../netskope-ca-bundle.crt:/certs/corp-root.crt:ro
     env_file:
-      - ../surfsense_backend/.env
+      - .env
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD:-postgres}@${DB_HOST:-db}:${DB_PORT:-5432}/${DB_NAME:-surfsense}}
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-surfsense}:${DB_PASSWORD:-surfsense}@${DB_HOST:-db}:${DB_PORT:-5432}/${DB_NAME:-surfsense}?ssl=disable}
       - CELERY_BROKER_URL=${REDIS_URL:-redis://redis:6379/0}
       - CELERY_RESULT_BACKEND=${REDIS_URL:-redis://redis:6379/0}
       - CELERY_TASK_DEFAULT_QUEUE=surfsense
       - PYTHONPATH=/app
+      - SSL_CERT_FILE=/certs/corp-root.crt
+      - REQUESTS_CA_BUNDLE=/certs/corp-root.crt
+      - PGSSLMODE=disable
       - SERVICE_ROLE=beat
     depends_on:
       db:
@@ -222,6 +260,7 @@ services:
         condition: service_started
 
   zero-cache:
+    container_name: sbs-dev-zero-cache
     image: rocicorp/zero:1.4.0
     ports:
       - "${ZERO_CACHE_PORT:-4848}:4848"
@@ -259,16 +298,19 @@ services:
   frontend:
     build:
       context: ../surfsense_web
+      dockerfile: Dockerfile
+      additional_contexts:
+        repo_root: ..
       args:
-        NEXT_PUBLIC_FASTAPI_BACKEND_URL: ${NEXT_PUBLIC_FASTAPI_BACKEND_URL:-http://localhost:8000}
+        NEXT_PUBLIC_FASTAPI_BACKEND_URL: ${NEXT_PUBLIC_FASTAPI_BACKEND_URL:-http://localhost:8929}
         NEXT_PUBLIC_FASTAPI_BACKEND_AUTH_TYPE: ${NEXT_PUBLIC_FASTAPI_BACKEND_AUTH_TYPE:-LOCAL}
         NEXT_PUBLIC_ETL_SERVICE: ${NEXT_PUBLIC_ETL_SERVICE:-DOCLING}
-        NEXT_PUBLIC_ZERO_CACHE_URL: ${NEXT_PUBLIC_ZERO_CACHE_URL:-http://localhost:${ZERO_CACHE_PORT:-4848}}
+        NEXT_PUBLIC_ZERO_CACHE_URL: ${NEXT_PUBLIC_ZERO_CACHE_URL:-http://localhost:${ZERO_CACHE_PORT:-5929}}
         NEXT_PUBLIC_DEPLOYMENT_MODE: ${NEXT_PUBLIC_DEPLOYMENT_MODE:-self-hosted}
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "${FRONTEND_PORT:-3929}:3000"
     env_file:
-      - ../surfsense_web/.env
+      - .env
     depends_on:
       backend:
         condition: service_healthy
@@ -277,14 +319,14 @@ services:
 
 volumes:
   postgres_data:
-    name: surfsense-dev-postgres
+    name: secondbrainsense-dev-postgres
   pgadmin_data:
-    name: surfsense-dev-pgadmin
+    name: secondbrainsense-dev-pgadmin
   redis_data:
-    name: surfsense-dev-redis
+    name: secondbrainsense-dev-redis
   shared_temp:
-    name: surfsense-dev-shared-temp
+    name: secondbrainsense-dev-shared-temp
   zero_cache_data:
-    name: surfsense-dev-zero-cache
+    name: secondbrainsense-dev-zero-cache
   whatsapp_sessions:
-    name: surfsense-dev-whatsapp-sessions
+    name: secondbrainsense-dev-whatsapp-sessions

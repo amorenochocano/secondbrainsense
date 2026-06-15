@@ -24,9 +24,9 @@ import yaml
 from qdrant_client import QdrantClient
 from qdrant_client.models import PointStruct
 
-from brain.collections import BRAIN, KNOWLEDGE, CODE
-from brain.brain_ingest import BrainIngestor
-from brain.writer import _slugify as _slug
+from app.brain.collections import BRAIN, KNOWLEDGE, CODE
+from app.brain.brain_ingest import BrainIngestor
+from app.brain.writer import _slugify as _slug
 from chunking import get_chunks
 
 log = logging.getLogger(__name__)

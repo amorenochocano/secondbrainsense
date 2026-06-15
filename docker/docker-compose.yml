@@ -7,7 +7,7 @@
 #   2. docker compose up -d
 # =============================================================================
 
-name: secondbrainsense
+name: surfsense
 
 # Certificado corporativo Enagás/Netskope
 # Se monta en /certs/ y las vars SSL apuntan a él via .env (SSL_CERT_FILE, REQUESTS_CA_BUNDLE, etc.)
@@ -17,7 +17,7 @@ x-corp-cert: &corp-cert
 
 services:
   db:
-    container_name: secondbrainsense-db
+    container_name: surfsense-db
     image: pgvector/pgvector:pg17
     volumes:
       - postgres_data:/var/lib/postgresql/data
@@ -40,7 +40,7 @@ services:
   # with `condition: service_completed_successfully` so a failed migration halts
   # the whole stack instead of booting zero-cache against a drifted publication.
   migrations:
-    container_name: secondbrainsense-migrations
+    container_name: surfsense-migrations
     <<: *corp-cert
     image: ghcr.io/modsetter/surfsense-backend:${SURFSENSE_VERSION:-latest}${SURFSENSE_VARIANT:+-${SURFSENSE_VARIANT}}
     env_file:
@@ -59,7 +59,7 @@ services:
     restart: "no"
 
   redis:
-    container_name: secondbrainsense-redis
+    container_name: surfsense-redis
     image: redis:8-alpine
     volumes:
       - redis_data:/data
@@ -95,7 +95,7 @@ services:
   #     retries: 3
 
   searxng:
-    container_name: secondbrainsense-searxng
+    container_name: surfsense-searxng
     image: searxng/searxng:2026.3.13-3c1f68c59
     # Inyecta el cert de Netskope en el bundle del sistema antes de arrancar SearXNG.
     # Alpine usa update-ca-certificates que lee /usr/local/share/ca-certificates/.
@@ -114,7 +114,7 @@ services:
       retries: 5
 
   backend:
-    container_name: secondbrainsense-backend
+    container_name: surfsense-backend
     <<: *corp-cert
     image: ghcr.io/modsetter/surfsense-backend:${SURFSENSE_VERSION:-latest}${SURFSENSE_VARIANT:+-${SURFSENSE_VARIANT}}
     ports:
@@ -189,7 +189,7 @@ services:
   #     retries: 5
 
   celery_worker:
-    container_name: secondbrainsense-celery-worker
+    container_name: surfsense-celery-worker
     <<: *corp-cert
     image: ghcr.io/modsetter/surfsense-backend:${SURFSENSE_VERSION:-latest}${SURFSENSE_VARIANT:+-${SURFSENSE_VARIANT}}
     volumes:
@@ -224,7 +224,7 @@ services:
     restart: unless-stopped
 
   celery_beat:
-    container_name: secondbrainsense-celery-beat
+    container_name: surfsense-celery-beat
     <<: *corp-cert
     image: ghcr.io/modsetter/surfsense-backend:${SURFSENSE_VERSION:-latest}${SURFSENSE_VARIANT:+-${SURFSENSE_VARIANT}}
     env_file:
@@ -250,7 +250,7 @@ services:
     restart: unless-stopped
 
   zero-cache:
-    container_name: secondbrainsense-zero-cache
+    container_name: surfsense-zero-cache
     image: rocicorp/zero:1.4.0
     ports:
       - "${ZERO_CACHE_PORT:-5929}:4848"
@@ -286,7 +286,7 @@ services:
       start_period: 600s
 
   frontend:
-    container_name: secondbrainsense-frontend
+    container_name: surfsense-frontend
     <<: *corp-cert
     image: ghcr.io/modsetter/surfsense-web:${SURFSENSE_VERSION:-latest}
     ports:
@@ -309,7 +309,7 @@ services:
     restart: unless-stopped
 
   qdrant:
-    container_name: secondbrainsense-qdrant
+    container_name: surfsense-qdrant
     image: qdrant/qdrant:latest
     ports:
       - "${QDRANT_PORT:-6333}:6333"
@@ -327,14 +327,14 @@ services:
 
 volumes:
   postgres_data:
-    name: secondbrainsense-postgres
+    name: surfsense-postgres
   redis_data:
-    name: secondbrainsense-redis
+    name: surfsense-redis
   shared_temp:
-    name: secondbrainsense-shared-temp
+    name: surfsense-shared-temp
   zero_cache_data:
-    name: secondbrainsense-zero-cache
+    name: surfsense-zero-cache
   whatsapp_sessions:
-    name: secondbrainsense-whatsapp-sessions
+    name: surfsense-whatsapp-sessions
   qdrant_data:
-    name: secondbrainsense-qdrant
+    name: surfsense-qdrant

@@ -57,7 +57,7 @@ def _delete_old_chunks(qdrant_client, slug: str):
             limit=10000,
         )
         # Busca chunks cuyo source genere el mismo slug
-        from brain.writer import _slugify
+        from app.brain.writer import _slugify
         ids = [
             p.id for p in result
             if p.payload and _slugify(p.payload.get("source", "")) == slug
@@ -83,7 +83,7 @@ def _reingest_md(md_path: str):
     """
     from qdrant_client import QdrantClient
     from ingest_utils import get_embedding
-    from brain.brain_ingest import BrainIngestor
+    from app.brain.brain_ingest import BrainIngestor
 
     slug = _source_from_md_path(md_path)
     log.info("[watcher] Iniciando re-ingestión de '%s' (slug='%s')", md_path, slug)

@@ -4,7 +4,7 @@ import hashlib
 import logging
 import yaml
 from qdrant_client.models import PointStruct
-from brain.collections import BRAIN
+from app.brain.collections import BRAIN
 
 log = logging.getLogger(__name__)
 

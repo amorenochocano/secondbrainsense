@@ -86,7 +86,7 @@ def _get_synthesis_profile(model_name: str, provider: str):
     Para provider=ollama, hace lookup por nombre de modelo.
     """
     try:
-        from brain.model_profiles import get_profile, ModelProfile
+        from app.brain.model_profiles import get_profile, ModelProfile
         if provider in ("claude", "azure"):
             # Para Claude siempre usamos el perfil claude independiente del modelo
             return get_profile("claude-sonnet")
@@ -203,7 +203,7 @@ class LLMClient:
         # con un mínimo de 4096 para evitar truncados en prompts normales.
         if num_ctx is None:
             try:
-                from brain.model_profiles import get_profile
+                from app.brain.model_profiles import get_profile
                 p = get_profile(effective_model)
                 num_ctx = p.context_tokens
             except Exception:

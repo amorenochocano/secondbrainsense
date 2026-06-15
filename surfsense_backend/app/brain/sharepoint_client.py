@@ -10,7 +10,7 @@ Requisitos:
   - En Docker: montar ~/.azure como volumen read-only y az instalado en la imagen
 
 Uso:
-    from brain.sharepoint_client import download_sharepoint_file
+    from app.brain.sharepoint_client import download_sharepoint_file
     tmp_path, filename = download_sharepoint_file("https://company.sharepoint.com/.../file.pdf")
     # ... procesar tmp_path ...
     os.remove(tmp_path)
