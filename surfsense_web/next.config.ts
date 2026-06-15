@@ -47,15 +47,18 @@ const nextConfig: NextConfig = {
 			"motion",
 		],
 	},
-	// Turbopack config (used during `next dev --turbopack`)
-	turbopack: {
-		rules: {
-			"*.svg": {
-				loaders: ["@svgr/webpack"],
-				as: "*.js",
-			},
-		},
-	},
+	// Turbopack config (used during `next dev --turbopack`).
+	// NOTA: comentado porque en Next.js 16 tener este bloque habilita Turbopack
+	// también para `next build`, lo que falla en Linux (binarios cross-platform).
+	// SVG se gestiona solo con webpack (bloque de abajo).
+	// turbopack: {
+	// 	rules: {
+	// 		"*.svg": {
+	// 			loaders: ["@svgr/webpack"],
+	// 			as: "*.js",
+	// 		},
+	// 	},
+	// },
 
 	// Configure webpack (SVGR)
 	webpack: (config) => {

@@ -12,12 +12,6 @@ FROM python:3.12-slim AS base
 
 WORKDIR /app
 
-# Certificado corporativo Enagás/Netskope (proxy SSL)
-# El archivo se pasa desde el contexto adicional repo_root (raiz del monorepo)
-# En dev: additional_contexts.repo_root = .. (docker-compose.dev.yml)
-# En CI:  --build-context repo_root=.
-COPY --from=repo_root netskope-ca-bundle.crt /usr/local/share/ca-certificates/corp-root.crt
-
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     python3-dev \
@@ -38,6 +32,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
+# Inyectar el cert corporativo ANTES de cualquier wget/curl a internet.
+# El COPY usa additional_contexts (repo_root) definido en docker-compose.dev.yml.
+COPY --from=repo_root netskope-ca-bundle.crt /usr/local/share/ca-certificates/corp-root.crt
+RUN update-ca-certificates
+
 RUN which ffmpeg && ffmpeg -version
 
 # Pandoc 3.x from GitHub Releases — apt ships 2.17 which has broken table rendering.
@@ -47,7 +46,6 @@ RUN ARCH=$(dpkg --print-architecture) && \
     dpkg -i /tmp/pandoc.deb && \
     rm /tmp/pandoc.deb
 
-RUN update-ca-certificates
 RUN pip install --upgrade certifi pip-system-certs
 
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt

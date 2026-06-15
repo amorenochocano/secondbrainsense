@@ -73,10 +73,13 @@ COPY . .
 # Next.js collects completely anonymous telemetry data about general usage.
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# NODE_EXTRA_CA_CERTS debe apuntar SOLO al cert corporativo adicional (no al bundle completo).
-# Node.js lo suma al bundle Mozilla integrado. Necesario para que next/font/google
-# pueda descargar las métricas de Roboto desde fonts.googleapis.com a través de Netskope.
+# NODE_EXTRA_CA_CERTS: para el runtime Node.js (webpack, etc.)
 ENV NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/corp-root.crt
+# NEXT_TURBOPACK_EXPERIMENTAL_USE_SYSTEM_TLS_CERTS: Turbopack tiene su propia
+# pila TLS y no usa NODE_EXTRA_CA_CERTS. Esta variable le dice que use el bundle
+# del sistema (/etc/ssl/certs/ca-certificates.crt) donde ya inyectamos el cert
+# corporativo de Netskope en el stage base.
+ENV NEXT_TURBOPACK_EXPERIMENTAL_USE_SYSTEM_TLS_CERTS=1
 
 RUN pnpm run build
 
