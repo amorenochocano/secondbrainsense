@@ -11,9 +11,15 @@
 name: surfsense-dev
 
 x-backend-build: &backend-build
-  context: ../surfsense_backend
+  # Contexto en la raíz del monorepo para que el cert corporativo sea accesible
+  context: ..
+  dockerfile: surfsense_backend/Dockerfile
   args:
     EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+
+x-frontend-build: &frontend-build
+  context: ..
+  dockerfile: surfsense_web/Dockerfile
 
 services:
   db:

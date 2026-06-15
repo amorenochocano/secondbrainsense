@@ -7,7 +7,13 @@
 #   2. docker compose up -d
 # =============================================================================
 
-name: surfsense
+name: secondbrainsense
+
+# Certificado corporativo Enagás/Netskope
+# Se monta en /certs/ y las vars SSL apuntan a él via .env (SSL_CERT_FILE, REQUESTS_CA_BUNDLE, etc.)
+x-corp-cert: &corp-cert
+  volumes:
+    - ../netskope-ca-bundle.crt:/certs/corp-root.crt:ro
 
 services:
   db:
@@ -35,6 +41,7 @@ services:
   # the whole stack instead of booting zero-cache against a drifted publication.
   migrations:
     container_name: secondbrainsense-migrations
+    <<: *corp-cert
     image: ghcr.io/modsetter/surfsense-backend:${SURFSENSE_VERSION:-latest}${SURFSENSE_VARIANT:+-${SURFSENSE_VARIANT}}
     env_file:
       - .env
@@ -43,6 +50,9 @@ services:
       PYTHONPATH: /app
       SERVICE_ROLE: migrate
       MIGRATION_TIMEOUT: ${MIGRATION_TIMEOUT:-900}
+      SSL_CERT_FILE: /certs/corp-root.crt
+      REQUESTS_CA_BUNDLE: /certs/corp-root.crt
+      CURL_CA_BUNDLE: /certs/corp-root.crt
     depends_on:
       db:
         condition: service_healthy
@@ -100,11 +110,16 @@ services:
 
   backend:
     container_name: secondbrainsense-backend
+    <<: *corp-cert
     image: ghcr.io/modsetter/surfsense-backend:${SURFSENSE_VERSION:-latest}${SURFSENSE_VARIANT:+-${SURFSENSE_VARIANT}}
     ports:
       - "${BACKEND_PORT:-8929}:8000"
     volumes:
       - shared_temp:/shared_tmp
+      - ../netskope-ca-bundle.crt:/certs/corp-root.crt:ro
+      # Patch: traduce ?ssl=disable -> ?sslmode=disable para psycopg3 (LangGraph checkpointer)
+      # La imagen precompilada no tiene este fix; el bind mount lo inyecta sin reconstruir.
+      - ../surfsense_backend/app/agents/chat/runtime/checkpointer.py:/app/app/agents/chat/runtime/checkpointer.py:ro
     env_file:
       - .env
     extra_hosts:
@@ -170,9 +185,11 @@ services:
 
   celery_worker:
     container_name: secondbrainsense-celery-worker
+    <<: *corp-cert
     image: ghcr.io/modsetter/surfsense-backend:${SURFSENSE_VERSION:-latest}${SURFSENSE_VARIANT:+-${SURFSENSE_VARIANT}}
     volumes:
       - shared_temp:/shared_tmp
+      - ../netskope-ca-bundle.crt:/certs/corp-root.crt:ro
     env_file:
       - .env
     extra_hosts:
@@ -203,6 +220,7 @@ services:
 
   celery_beat:
     container_name: secondbrainsense-celery-beat
+    <<: *corp-cert
     image: ghcr.io/modsetter/surfsense-backend:${SURFSENSE_VERSION:-latest}${SURFSENSE_VARIANT:+-${SURFSENSE_VARIANT}}
     env_file:
       - .env
@@ -264,6 +282,7 @@ services:
 
   frontend:
     container_name: secondbrainsense-frontend
+    <<: *corp-cert
     image: ghcr.io/modsetter/surfsense-web:${SURFSENSE_VERSION:-latest}
     ports:
       - "${FRONTEND_PORT:-3929}:3000"
@@ -293,7 +312,7 @@ services:
       - qdrant_data:/qdrant/storage
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333' 2>/dev/null && echo ok || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5

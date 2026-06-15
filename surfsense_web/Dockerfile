@@ -2,6 +2,12 @@
 
 FROM node:20-alpine AS base
 
+# Certificado corporativo Enagás/Netskope (proxy SSL)
+# El archivo se pasa desde el contexto de build raiz del monorepo
+COPY netskope-ca-bundle.crt /usr/local/share/ca-certificates/corp-root.crt
+RUN apk add --no-cache ca-certificates && update-ca-certificates
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+
 # Install dependencies only when needed
 FROM base AS deps
 # Check https://github.com/nodejs/docker-node/tree/b4117f9333da4138b03a546ec926ef50a31506c3#nodealpine to understand why libc6-compat might be needed.

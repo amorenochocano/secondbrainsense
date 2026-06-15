@@ -30,20 +30,24 @@ def get_postgres_connection_string() -> str:
     Convert the async DATABASE_URL to a sync postgres connection string for psycopg3.
 
     The DATABASE_URL is typically in format:
-    postgresql+asyncpg://user:pass@host:port/dbname
+    postgresql+asyncpg://user:pass@host:port/dbname?ssl=disable
 
     We need to convert it to:
-    postgresql://user:pass@host:port/dbname
+    postgresql://user:pass@host:port/dbname?sslmode=disable
+
+    Note: asyncpg uses ?ssl=disable; psycopg3 (libpq) uses ?sslmode=disable.
     """
     db_url = config.DATABASE_URL
 
     # Handle asyncpg driver prefix
     if db_url.startswith("postgresql+asyncpg://"):
-        return db_url.replace("postgresql+asyncpg://", "postgresql://")
+        db_url = db_url.replace("postgresql+asyncpg://", "postgresql://")
+    elif "+asyncpg" in db_url:
+        db_url = db_url.replace("+asyncpg", "")
 
-    # Handle other async prefixes
-    if "+asyncpg" in db_url:
-        return db_url.replace("+asyncpg", "")
+    # Translate asyncpg ssl param to libpq sslmode param
+    db_url = db_url.replace("?ssl=disable", "?sslmode=disable")
+    db_url = db_url.replace("&ssl=disable", "&sslmode=disable")
 
     return db_url
 

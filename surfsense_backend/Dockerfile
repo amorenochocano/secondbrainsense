@@ -12,6 +12,10 @@ FROM python:3.12-slim AS base
 
 WORKDIR /app
 
+# Certificado corporativo Enagás/Netskope (proxy SSL)
+# El archivo se pasa desde el contexto de build raiz del monorepo
+COPY netskope-ca-bundle.crt /usr/local/share/ca-certificates/corp-root.crt
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     python3-dev \
@@ -44,8 +48,9 @@ RUN ARCH=$(dpkg --print-architecture) && \
 RUN update-ca-certificates
 RUN pip install --upgrade certifi pip-system-certs
 
-ENV SSL_CERT_FILE=/usr/local/lib/python3.12/site-packages/certifi/cacert.pem
-ENV REQUESTS_CA_BUNDLE=/usr/local/lib/python3.12/site-packages/certifi/cacert.pem
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 ENV SURFSENSE_ALLOW_STATIC_FFMPEG_DOWNLOAD=FALSE
 
 
