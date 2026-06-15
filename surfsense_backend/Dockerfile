@@ -117,7 +117,8 @@ RUN --mount=type=secret,id=HF_TOKEN \
 # Install Scrapling's browser engines (patchright Chromium + Camoufox).
 # Scrapling pulls playwright/patchright via the `fetchers` extra; `scrapling install`
 # downloads the matching browser binaries used by DynamicFetcher/StealthyFetcher.
-RUN scrapling install
+# `|| true` para que no falle en redes corporativas que bloquean la descarga.
+RUN scrapling install || true
 
 # Shared temp directory for file uploads between API and Worker containers.
 # Python's tempfile module uses TMPDIR, so uploaded files land here.
