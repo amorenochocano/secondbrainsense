@@ -168,7 +168,7 @@ PASSPORT_WATCHER_ENABLED=true
 ## F0.3 — Docker Compose actualizado (Día 2)
 
 ```yaml
-# docker-compose.yml — BrainSense Platform
+# docker-compose.yml — secondbrainSense Platform
 version: '3.9'
 
 services:
