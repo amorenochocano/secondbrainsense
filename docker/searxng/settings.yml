@@ -81,8 +81,7 @@ engines:
     disabled: false
     weight: 0.7
     retry_on_http_error: [429, 503]
-  - name: wikidata
-    disabled: true  # Bloqueado por proxy corporativo (HTTP 403)
+  # wikidata: eliminado — el proxy corporativo devuelve 403, init() falla en cada arranque
   - name: currency
     disabled: false
   - name: ddg definitions
