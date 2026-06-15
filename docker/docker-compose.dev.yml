@@ -170,6 +170,8 @@ services:
         condition: service_healthy
       searxng:
         condition: service_healthy
+      qdrant:
+        condition: service_healthy
       migrations:
         condition: service_completed_successfully
     healthcheck:
@@ -229,6 +231,8 @@ services:
         condition: service_healthy
       migrations:
         condition: service_completed_successfully
+      qdrant:
+        condition: service_healthy
       backend:
         condition: service_healthy
 
@@ -295,6 +299,24 @@ services:
       retries: 5
       start_period: 600s
 
+  qdrant:
+    container_name: sbs-dev-qdrant
+    image: qdrant/qdrant:latest
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"
+      - "6334:6334"   # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    environment:
+      # Deshabilita telemetría a telemetry.qdrant.io (falla con Netskope)
+      QDRANT__TELEMETRY_DISABLED: "true"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333' 2>/dev/null && echo ok || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   frontend:
     container_name: sbs-dev-frontend
     build:
@@ -331,3 +353,5 @@ volumes:
     name: secondbrainsense-dev-zero-cache
   whatsapp_sessions:
     name: secondbrainsense-dev-whatsapp-sessions
+  qdrant_data:
+    name: secondbrainsense-dev-qdrant
