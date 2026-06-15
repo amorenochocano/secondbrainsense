@@ -34,10 +34,10 @@ COPY source.config.ts ./
 COPY content ./content
 
 # Install dependencies.
-# --prefer-frozen-lockfile: usa el lockfile pero permite instalar paquetes opcionales
-# de la plataforma actual (e.g. @vercel/turbopack-next en Linux vs Windows).
-# --frozen-lockfile falla en Linux si el lockfile fue generado en Windows.
-RUN pnpm i --prefer-frozen-lockfile
+# --no-frozen-lockfile: el pnpm-lock.yaml se generó en Windows; los binarios
+# nativos de @vercel/turbopack-next son distintos por plataforma y pnpm no
+# puede instalarlos desde un lockfile de otra plataforma con --frozen-lockfile.
+RUN pnpm i --no-frozen-lockfile
 
 
 # Rebuild the source code only when needed
