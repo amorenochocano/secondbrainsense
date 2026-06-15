@@ -1,0 +1,81 @@
+# registry_config.yaml
+# ---------------------
+# Registro de procesadores por formato base y subtipo.
+#
+# Formato de la clave: base_format → subtipo → lista de nombres de clase
+#
+# Convención de nombres de clase:
+#   UniversalCleaner        = rag_lib/layer1_universal/universal_cleaner.py
+#   [Formato]Extractor      = api/extractors/[formato].py  (extractores actuales)
+#   [Nombre]Processor       = rag_lib/layer3_subtype/...   (plan técnico Fase 5)
+#   ChunkAssembler          = rag_lib/layer4_assembler/chunk_assembler.py
+#
+# Durante la migración los nombres de clase se corresponden a los
+# extractores existentes en api/extractors/. La Fase 5 los sustituirá
+# por procesadores nativos de rag_lib sin cambiar este fichero.
+#
+# Para añadir un nuevo subtipo:
+#   1. Crear layer3_subtype/[formato]/[nombre].py
+#   2. Añadir detección en subtype_detector.py
+#   3. Añadir línea aquí
+#   Nada más.
+
+# ------------------------------------------------------------------
+# Documentos de texto enriquecido
+# ------------------------------------------------------------------
+pdf:
+  generic:        [UniversalCleaner, PDFExtractor,      ChunkAssembler]
+  scanned:        [UniversalCleaner, PDFExtractor,      ChunkAssembler]
+
+docx:
+  generic:        [UniversalCleaner, DocxExtractor,     ChunkAssembler]
+
+xlsx:
+  generic:        [UniversalCleaner, XlsxExtractor,     ChunkAssembler]
+
+pptx:
+  generic:        [UniversalCleaner, PptxExtractor,     ChunkAssembler]
+
+# ------------------------------------------------------------------
+# Texto plano y markup
+# ------------------------------------------------------------------
+markdown:
+  generic:        [UniversalCleaner, MarkdownExtractor, ChunkAssembler]
+
+csv:
+  generic:        [UniversalCleaner, CsvExtractor,      ChunkAssembler]
+
+txt:
+  generic:        [UniversalCleaner, TxtExtractor,      ChunkAssembler]
+
+html:
+  generic:        [UniversalCleaner, WebExtractor,      ChunkAssembler]
+
+# ------------------------------------------------------------------
+# Datos estructurados
+# ------------------------------------------------------------------
+json:
+  generic:              [UniversalCleaner, JsonFabricExtractor,     ChunkAssembler]
+  fabric_pipeline:      [UniversalCleaner, JsonFabricExtractor,     ChunkAssembler]
+  fabric_dataflow:      [UniversalCleaner, JsonFabricExtractor,     ChunkAssembler]
+  fabric_lakehouse:     [UniversalCleaner, JsonFabricExtractor,     ChunkAssembler]
+  fabric_report:        [UniversalCleaner, JsonFabricExtractor,     ChunkAssembler]
+  fabric_dataset:       [UniversalCleaner, JsonFabricExtractor,     ChunkAssembler]
+  arm_template:         [UniversalCleaner, JsonFabricExtractor,     ChunkAssembler]
+  arm_parameters:       [UniversalCleaner, JsonFabricExtractor,     ChunkAssembler]
+
+xml:
+  generic:        [UniversalCleaner, XmlExtractor,      ChunkAssembler]
+  drawio:         [UniversalCleaner, DrawioExtractor,   ChunkAssembler]
+
+# ------------------------------------------------------------------
+# Código
+# ------------------------------------------------------------------
+python:
+  generic:        [UniversalCleaner, PythonExtractor,   ChunkAssembler]
+
+sql:
+  generic:        [UniversalCleaner, SqlExtractor,      ChunkAssembler]
+
+ipynb:
+  generic:        [UniversalCleaner, IpynbExtractor,    ChunkAssembler]
