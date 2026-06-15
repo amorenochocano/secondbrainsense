@@ -81,7 +81,10 @@ ENV NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/corp-root.crt
 # corporativo de Netskope en el stage base.
 ENV NEXT_TURBOPACK_EXPERIMENTAL_USE_SYSTEM_TLS_CERTS=1
 
-RUN pnpm run build
+# Next.js 16 usa Turbopack por defecto para `next build`.
+# @vercel/turbopack-next no resuelve sus módulos internos en Alpine musl.
+# Forzamos webpack con --no-turbopack.
+RUN pnpm exec next build --no-turbopack
 
 # Production image, copy all the files and run next
 FROM base AS runner
