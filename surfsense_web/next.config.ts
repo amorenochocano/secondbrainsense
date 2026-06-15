@@ -38,6 +38,10 @@ const nextConfig: NextConfig = {
 		contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
 	},
 	experimental: {
+		// Next.js 16 activa Turbopack por defecto para `next build`.
+		// @vercel/turbopack-next no resuelve bien sus módulos internos en Alpine musl.
+		// Forzamos webpack explícitamente.
+		turbopackBuild: false,
 		optimizePackageImports: [
 			"lucide-react",
 			"@tabler/icons-react",
