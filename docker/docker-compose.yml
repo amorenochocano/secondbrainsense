@@ -122,9 +122,9 @@ services:
     volumes:
       - shared_temp:/shared_tmp
       - ../netskope-ca-bundle.crt:/certs/corp-root.crt:ro
-      # Patch: traduce ?ssl=disable -> ?sslmode=disable para psycopg3 (LangGraph checkpointer)
-      # La imagen precompilada no tiene este fix; el bind mount lo inyecta sin reconstruir.
       - ../surfsense_backend/app/agents/chat/runtime/checkpointer.py:/app/app/agents/chat/runtime/checkpointer.py:ro
+      # Second Brain: código migrado en el host, inyectado en la imagen precompilada
+      - ../surfsense_backend/app/brain:/app/app/brain:ro
     env_file:
       - .env
     extra_hosts:
