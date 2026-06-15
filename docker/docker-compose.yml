@@ -97,8 +97,13 @@ services:
   searxng:
     container_name: secondbrainsense-searxng
     image: searxng/searxng:2026.3.13-3c1f68c59
+    # Inyecta el cert de Netskope en el bundle del sistema antes de arrancar SearXNG.
+    # Alpine usa update-ca-certificates que lee /usr/local/share/ca-certificates/.
+    # El entrypoint original es: /sbin/tini -- /usr/local/searxng/dockerfiles/docker-entrypoint.sh
+    entrypoint: ["/bin/sh", "-c", "update-ca-certificates 2>/dev/null; exec /usr/local/searxng/entrypoint.sh"]
     volumes:
       - ./searxng:/etc/searxng
+      - ../netskope-ca-bundle.crt:/usr/local/share/ca-certificates/corp-root.crt:ro
     environment:
       SEARXNG_SECRET: ${SEARXNG_SECRET:-surfsense-searxng-secret}
     restart: unless-stopped
@@ -310,6 +315,9 @@ services:
       - "${QDRANT_PORT:-6333}:6333"
     volumes:
       - qdrant_data:/qdrant/storage
+    environment:
+      # Deshabilita el reporte de telemetría a telemetry.qdrant.io (falla con Netskope)
+      QDRANT__TELEMETRY_DISABLED: "true"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333' 2>/dev/null && echo ok || exit 1"]
