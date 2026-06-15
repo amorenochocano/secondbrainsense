@@ -1,5 +1,5 @@
 # Plan Maestro de Integración
-## Second Brain v4 + SurfSense → BrainSense Platform
+## Second Brain v4 + SurfSense → SecondBrainSense Platform
 
 **Versión:** 1.0  
 **Fecha:** Junio 2026  
@@ -10,7 +10,7 @@
 
 ## Visión del producto
 
-Construir una plataforma única — **BrainSense** — que combine:
+Construir una plataforma única — **SecondBrainSense** — que combine:
 
 - La **inteligencia semántica** de Second Brain v4: pipeline de tres fases, pasaporte semántico en 7 secciones, síntesis multi-call con quality_trigger, router multinivel L1→L2→L0, 14 tipos de documento con preprocesadores específicos
 - La **infraestructura corporativa** de SurfSense: 25+ conectores (GitHub, Jira, Confluence, Slack, Notion...), RBAC multi-usuario, UI Next.js madura, Celery scheduler, API REST completa
@@ -70,7 +70,8 @@ Second Brain migra sus componentes al monorepo del fork. No hay dos repositorios
 │          qwen2.5-coder · deepseek-r1 · llama3.2-vision        │
 └─────────────────────────────────────────────────────────────────┘
 ```
-
+IMPORTANTE:
+El codigo completo del second brain esta : C:\Users\EN31380\OneDrive - Enagás, S.A\Documentos\Mis_proyectos\AMCH\second brain\ revisar si tienes alguna duda de como funcionan los programas o los procesos. APOLLATE EN ARQUITECTURA_SECOND_BRAIN_v4.md y ew menor medida ARQUITECTURA_SECOND_BRAIN.md que esta desactualizado pero puede darte contexto a nivel de UI y otras compomentes.
 ---
 
 ## Fases del proyecto
