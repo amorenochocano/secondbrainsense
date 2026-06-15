@@ -13,7 +13,9 @@ COPY --from=repo_root netskope-ca-bundle.crt /tmp/corp-root.crt
 RUN cat /tmp/corp-root.crt >> /etc/ssl/certs/ca-certificates.crt && \
     mkdir -p /usr/local/share/ca-certificates && \
     cp /tmp/corp-root.crt /usr/local/share/ca-certificates/corp-root.crt
-ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+# NODE_EXTRA_CA_CERTS debe apuntar SOLO al cert corporativo adicional.
+# Node.js lo suma al bundle Mozilla integrado — no sustituye el bundle completo.
+ENV NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/corp-root.crt
 
 # Install dependencies only when needed
 FROM base AS deps
@@ -31,8 +33,11 @@ COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml* .npmrc* ./
 COPY source.config.ts ./
 COPY content ./content
 
-# Install dependencies with frozen lockfile
-RUN pnpm i --frozen-lockfile
+# Install dependencies.
+# --prefer-frozen-lockfile: usa el lockfile pero permite instalar paquetes opcionales
+# de la plataforma actual (e.g. @vercel/turbopack-next en Linux vs Windows).
+# --frozen-lockfile falla en Linux si el lockfile fue generado en Windows.
+RUN pnpm i --prefer-frozen-lockfile
 
 
 # Rebuild the source code only when needed
@@ -67,9 +72,12 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Next.js collects completely anonymous telemetry data about general usage.
-# Learn more here: https://nextjs.org/telemetry
-# Uncomment the following line in case you want to disable telemetry during the build.
-# ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# NODE_EXTRA_CA_CERTS debe apuntar SOLO al cert corporativo adicional (no al bundle completo).
+# Node.js lo suma al bundle Mozilla integrado. Necesario para que next/font/google
+# pueda descargar las métricas de Roboto desde fonts.googleapis.com a través de Netskope.
+ENV NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/corp-root.crt
 
 RUN pnpm run build
 
