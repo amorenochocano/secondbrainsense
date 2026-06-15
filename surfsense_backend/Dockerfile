@@ -92,13 +92,13 @@ RUN pip install --no-cache-dir uv && \
 # ─── Stage 3: models (pre-baked offline assets) ─────────────────────────────
 FROM deps AS models
 
-# Pre-download EasyOCR models to avoid runtime SSL issues
+# Pre-download EasyOCR models to avoid runtime delays
 RUN mkdir -p /root/.EasyOCR/model && \
-    wget --no-check-certificate https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/english_g2.zip      -O /root/.EasyOCR/model/english_g2.zip      || true && \
-    wget --no-check-certificate https://github.com/JaidedAI/EasyOCR/releases/download/pre-v1.1.6/craft_mlt_25k.zip -O /root/.EasyOCR/model/craft_mlt_25k.zip || true && \
+    wget https://github.com/JaidedAI/EasyOCR/releases/download/v1.3/english_g2.zip      -O /root/.EasyOCR/model/english_g2.zip      && \
+    wget https://github.com/JaidedAI/EasyOCR/releases/download/pre-v1.1.6/craft_mlt_25k.zip -O /root/.EasyOCR/model/craft_mlt_25k.zip && \
     cd /root/.EasyOCR/model && \
-    (unzip -o english_g2.zip || true) && \
-    (unzip -o craft_mlt_25k.zip || true)
+    unzip -o english_g2.zip && \
+    unzip -o craft_mlt_25k.zip
 
 # Pre-download Docling models
 RUN printf '%s\n' \
@@ -117,8 +117,9 @@ RUN --mount=type=secret,id=HF_TOKEN \
 # Install Scrapling's browser engines (patchright Chromium + Camoufox).
 # Scrapling pulls playwright/patchright via the `fetchers` extra; `scrapling install`
 # downloads the matching browser binaries used by DynamicFetcher/StealthyFetcher.
-# `|| true` para que no falle en redes corporativas que bloquean la descarga.
-RUN scrapling install || true
+# NODE_EXTRA_CA_CERTS is needed because playwright/patchright uses Node.js, which
+# has its own CA store and ignores SSL_CERT_FILE / update-ca-certificates.
+RUN NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt scrapling install
 
 # Shared temp directory for file uploads between API and Worker containers.
 # Python's tempfile module uses TMPDIR, so uploaded files land here.
