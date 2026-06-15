@@ -44,11 +44,10 @@ RUN pnpm i --no-frozen-lockfile
 FROM base AS builder
 WORKDIR /app
 
-# git is required by the fumadocs-mdx lastModified plugin during `next build`.
-# The .git directory is dockerignored, so git commands exit non-zero and the
-# plugin falls back gracefully — but the binary itself must exist to avoid
-# "spawn git ENOENT" failures.
-RUN apk add --no-cache git
+# libc6-compat es necesario para cargar los binarios nativos (.node) de
+# @vercel/turbopack-next que vienen en node_modules copiados del stage deps.
+# Sin esto, Node no puede cargar el módulo y next build falla con Module not found.
+RUN apk add --no-cache libc6-compat git
 
 # Enable pnpm
 RUN corepack enable pnpm
