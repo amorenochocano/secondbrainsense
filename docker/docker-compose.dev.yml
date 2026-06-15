@@ -38,12 +38,12 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./postgresql.conf:/etc/postgresql/postgresql.conf:ro
     environment:
-      - POSTGRES_USER=${DB_USER:-postgres}
-      - POSTGRES_PASSWORD=${DB_PASSWORD:-postgres}
+      - POSTGRES_USER=${DB_USER:-surfsense}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-surfsense}
       - POSTGRES_DB=${DB_NAME:-surfsense}
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-surfsense}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-surfsense} -d ${DB_NAME:-surfsense}"]
       interval: 10s
       timeout: 5s
       retries: 5
