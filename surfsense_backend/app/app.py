@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import gc
 import logging
+import os
 import time
 import uuid
 from collections import defaultdict
@@ -35,7 +36,8 @@ from app.config import (
     initialize_pricing_registration,
     initialize_vision_llm_router,
 )
-from app.db import User, create_db_and_tables, get_async_session
+from app.db import User, create_db_and_tables, get_async_session, async_session_maker
+from app.brain.metadata_service import init_brain_metadata_service
 from app.exceptions import GENERIC_5XX_MESSAGE, ISSUES_URL, SurfSenseError
 from app.gateway.byo_long_poll import (
     start_byo_long_poll_supervisors,
@@ -617,6 +619,31 @@ async def lifespan(app: FastAPI):
     init_otel(app)
     await create_db_and_tables()
     await setup_checkpointer_tables()
+
+    # Brain metadata service — inicializar singleton y cargar caché global
+    brain_meta_svc = init_brain_metadata_service(async_session_maker)
+    try:
+        await asyncio.wait_for(brain_meta_svc.load(search_space_id=0), timeout=15.0)
+        logging.getLogger(__name__).info("[startup] BrainMetadataService cargado correctamente")
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "[startup] BrainMetadataService falló en carga inicial (non-fatal)", exc_info=True
+        )
+
+    # BrainWatcher: re-indexar .md editados manualmente
+    brain_watcher_task = None
+    if os.getenv("PASSPORT_WATCHER_ENABLED", "true").lower() == "true":
+        try:
+            from app.brain.brain_watcher import watch_brain_dir
+            brain_watcher_task = asyncio.create_task(watch_brain_dir())
+            logging.getLogger(__name__).info(
+                "[startup] BrainWatcher iniciado — monitorizando %s",
+                os.getenv("BRAIN_DATA_PATH", "/data/brain")
+            )
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "[startup] BrainWatcher no disponible (non-fatal)", exc_info=True
+            )
     initialize_openrouter_integration()
     _start_openrouter_background_refresh()
     initialize_pricing_registration()
@@ -655,6 +682,10 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        if brain_watcher_task and not brain_watcher_task.done():
+            brain_watcher_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await brain_watcher_task
         await stop_discord_gateway_supervisor()
         await stop_byo_long_poll_supervisors()
         await stop_gateway_inbox_worker()

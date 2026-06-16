@@ -292,3 +292,243 @@ def generate_unique_identifier_hash(
     combined_data = f"{document_type.value}:{identifier_str}:{search_space_id}"
 
     return hashlib.sha256(combined_data.encode("utf-8")).hexdigest()
+
+
+# ===========================================================================
+# Brain Pipeline — F1.5
+# ===========================================================================
+# process_document_content() es el punto de integración entre el task Celery
+# de SurfSense y el pipeline de tres fases del Second Brain.
+#
+# Flujo:
+#   task Celery
+#     → DocumentProcessorFactory.is_supported(filename)?
+#         SÍ → process_document_content()   ← esta función
+#                  → Fase 1+2: extract()     (extractor + UniversalCleaner)
+#                  → Fase 3:   preprocess()  (preprocesador semántico)
+#                  → devuelve processed_text + metadata de calidad
+#         NO → pipeline genérico SurfSense (EtlPipelineService)
+# ===========================================================================
+
+
+async def process_document_content(
+    file_content: bytes,
+    filename: str,
+    search_space_id: int,
+    metadata: dict | None = None,
+    meta_service=None,
+) -> dict:
+    """
+    Orquesta el pipeline de tres fases del Second Brain sobre un fichero.
+
+    Punto de integración entre el task Celery de SurfSense y el pipeline Brain.
+    Llamar solo cuando DocumentProcessorFactory.is_supported(filename) es True.
+
+    Fases ejecutadas:
+      Fase 1+2: extract()    — extractor específico + UniversalCleaner
+      Fase 3:   preprocess() — preprocesador semántico por tipo de fichero
+
+    El guardado en PostgreSQL + Qdrant se realiza en F2/F3.
+    En F1 devuelve el processed_text y metadata para que el task lo persista.
+
+    Args:
+        file_content:    Bytes del fichero a procesar.
+        filename:        Nombre original del fichero (con extensión).
+        search_space_id: ID del search space (int, igual que SurfSense).
+        metadata:        Metadata adicional a inyectar en los bloques.
+        meta_service:    BrainMetadataService opcional para normalizar tags.
+                         Si es None, se omite la normalización de vocabulario.
+
+    Returns:
+        Dict con:
+          processed_text  — texto preprocesado con marcas ##/###/####
+          blocks          — bloques limpios con metadata de calidad
+          quality_meta    — avg_quality_score, has_pii, languages, normalized_tags
+          filename        — nombre del fichero
+          search_space_id — ID del search space propagado
+
+    Raises:
+        ValueError: si filename no tiene soporte en el pipeline Brain.
+        RuntimeError: si la extracción falla y no hay fallback posible.
+    """
+    import os
+    import tempfile
+
+    from app.brain.processor_factory import DocumentProcessorFactory
+
+    if not DocumentProcessorFactory.is_supported(filename):
+        raise ValueError(
+            f"[process_document_content] Extensión no soportada por el pipeline Brain: "
+            f"{filename}. Usar EtlPipelineService como fallback."
+        )
+
+    logger.info(
+        "[brain_pipeline] Iniciando pipeline 3 fases: file=%s space=%s bytes=%d",
+        filename, search_space_id, len(file_content),
+    )
+
+    # Escribir bytes a fichero temporal para que el extractor pueda leerlo
+    # Los extractores del Second Brain trabajan sobre rutas de fichero en disco.
+    suffix = os.path.splitext(filename)[1].lower()
+    tmp_path: str | None = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            suffix=suffix, delete=False, prefix="brain_"
+        ) as tmp:
+            tmp.write(file_content)
+            tmp_path = tmp.name
+
+        processor = DocumentProcessorFactory.get(filename)
+
+        # ── Fase 1 + 2: extracción y limpieza universal ────────────────────
+        blocks = processor.extract(
+            file_path=tmp_path,
+            search_space_id=search_space_id,
+        )
+
+        logger.info(
+            "[brain_pipeline] Fase 1+2 OK: file=%s blocks=%d space=%s",
+            filename, len(blocks), search_space_id,
+        )
+
+        # ── Fase 3: preprocesado semántico ──────────────────────────────
+        processed_text = processor.preprocess(blocks)
+
+        logger.info(
+            "[brain_pipeline] Fase 3 OK: file=%s chars=%d space=%s",
+            filename, len(processed_text), search_space_id,
+        )
+
+        # ── Metadata de calidad ────────────────────────────────────────
+        quality_meta = processor.get_metadata_from_blocks(
+            blocks=blocks,
+            meta_service=meta_service,
+            search_space_id=search_space_id,
+        )
+
+        logger.info(
+            "[brain_pipeline] Pipeline 3 fases completado: file=%s "
+            "blocks=%d chars=%d quality=%.2f space=%s",
+            filename,
+            quality_meta["total_blocks"],
+            len(processed_text),
+            quality_meta["avg_quality_score"],
+            search_space_id,
+        )
+
+        return {
+            "processed_text":  processed_text,
+            "blocks":          blocks,
+            "quality_meta":    quality_meta,
+            "filename":        filename,
+            "search_space_id": search_space_id,
+        }
+
+    except Exception as exc:
+        logger.error(
+            "[brain_pipeline] Error en pipeline 3 fases: file=%s space=%s error=%s",
+            filename, search_space_id, exc, exc_info=True,
+        )
+        raise RuntimeError(
+            f"[brain_pipeline] Fallo en pipeline Brain para '{filename}': {exc}"
+        ) from exc
+
+    finally:
+        # Limpiar fichero temporal siempre, incluso si hay excepción
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except Exception as cleanup_exc:
+                logger.warning(
+                    "[brain_pipeline] No se pudo eliminar fichero temporal %s: %s",
+                    tmp_path, cleanup_exc,
+                )
+
+
+async def process_document_from_text(
+    text: str,
+    filename: str,
+    search_space_id: int,
+    metadata: dict | None = None,
+    meta_service=None,
+) -> dict:
+    """
+    Orquesta el pipeline Brain para conectores API que entregan texto directo.
+
+    Variante de process_document_content() para conectores como GitHub, Jira,
+    Confluence o Slack que no tienen fichero en disco sino texto ya disponible.
+    Usa extract_from_text() en lugar de extract() para evitar escribir a disco.
+
+    Args:
+        text:            Contenido textual del documento.
+        filename:        Nombre virtual con extensión que identifica el tipo
+                         (ej: "page.confluence", "ticket.jira_ticket").
+        search_space_id: ID del search space.
+        metadata:        Metadata adicional (source_url, connector_id, etc.).
+        meta_service:    BrainMetadataService opcional para normalizar tags.
+
+    Returns:
+        Mismo formato que process_document_content().
+
+    Raises:
+        ValueError: si filename no tiene soporte en el pipeline Brain.
+    """
+    from app.brain.processor_factory import DocumentProcessorFactory
+
+    if not DocumentProcessorFactory.is_supported(filename):
+        raise ValueError(
+            f"[process_document_from_text] Extensión no soportada: {filename}"
+        )
+
+    logger.info(
+        "[brain_pipeline] Iniciando pipeline texto directo: file=%s space=%s chars=%d",
+        filename, search_space_id, len(text),
+    )
+
+    processor = DocumentProcessorFactory.get(filename)
+
+    # Fase 1+2: extracción desde texto (sin fichero en disco)
+    blocks = processor.extract_from_text(
+        text=text,
+        search_space_id=search_space_id,
+        metadata=metadata,
+    )
+
+    logger.info(
+        "[brain_pipeline] Fase 1+2 (texto) OK: file=%s blocks=%d space=%s",
+        filename, len(blocks), search_space_id,
+    )
+
+    # Fase 3: preprocesado semántico
+    processed_text = processor.preprocess(blocks)
+
+    logger.info(
+        "[brain_pipeline] Fase 3 (texto) OK: file=%s chars=%d space=%s",
+        filename, len(processed_text), search_space_id,
+    )
+
+    # Metadata de calidad
+    quality_meta = processor.get_metadata_from_blocks(
+        blocks=blocks,
+        meta_service=meta_service,
+        search_space_id=search_space_id,
+    )
+
+    logger.info(
+        "[brain_pipeline] Pipeline texto directo completado: file=%s "
+        "blocks=%d chars=%d quality=%.2f space=%s",
+        filename,
+        quality_meta["total_blocks"],
+        len(processed_text),
+        quality_meta["avg_quality_score"],
+        search_space_id,
+    )
+
+    return {
+        "processed_text":  processed_text,
+        "blocks":          blocks,
+        "quality_meta":    quality_meta,
+        "filename":        filename,
+        "search_space_id": search_space_id,
+    }

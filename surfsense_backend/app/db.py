@@ -2856,6 +2856,127 @@ class RefreshToken(Base, TimestampMixin):
         return not self.is_expired and not self.is_revoked
 
 
+# ===========================================================================
+# ── Brain Metadata Models (F1.0) ───────────────────────────────────────────
+# Maestros de clasificación y vocabulario controlado del Second Brain.
+# search_space_id = NULL  → registro global (aplica a todos los spaces).
+# search_space_id = <id>  → sobreescribe el global para ese space.
+# ===========================================================================
+
+
+class BrainDomain(BaseModel, TimestampMixin):
+    """Dominios funcionales para clasificación de documentos Brain."""
+
+    __tablename__ = "brain_domains"
+
+    domain_key      = Column(String(80),  nullable=False)
+    label           = Column(String(200), nullable=False)
+    description     = Column(Text,        default="")
+    signal_tags     = Column(JSONB,       default=list)
+    signal_kw       = Column(JSONB,       default=list)
+    search_space_id = Column(
+        Integer,
+        ForeignKey("searchspaces.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    is_active  = Column(Boolean, default=True)
+    updated_at = Column(
+        TIMESTAMP(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+
+class BrainSubdomain(BaseModel, TimestampMixin):
+    """Subdominios dentro de cada dominio Brain."""
+
+    __tablename__ = "brain_subdomains"
+
+    subdomain_key   = Column(String(80),  nullable=False)
+    domain_key      = Column(String(80),  nullable=False, index=True)
+    label           = Column(String(200), nullable=False)
+    signal_tags     = Column(JSONB,       default=list)
+    signal_kw       = Column(JSONB,       default=list)
+    search_space_id = Column(
+        Integer,
+        ForeignKey("searchspaces.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    is_active  = Column(Boolean, default=True)
+    updated_at = Column(
+        TIMESTAMP(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+
+class BrainDocType(BaseModel, TimestampMixin):
+    """Tipos documentales para clasificación Brain."""
+
+    __tablename__ = "brain_doc_types"
+
+    type_key        = Column(String(80),  nullable=False)
+    label           = Column(String(200), nullable=False)
+    signal_tags     = Column(JSONB,       default=list)
+    signal_kw       = Column(JSONB,       default=list)
+    signal_formats  = Column(JSONB,       default=list)   # [".py", ".ipynb", ...]
+    search_space_id = Column(
+        Integer,
+        ForeignKey("searchspaces.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    is_active  = Column(Boolean, default=True)
+    updated_at = Column(
+        TIMESTAMP(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+
+class BrainEntityHint(BaseModel, TimestampMixin):
+    """Patrones regex para extracción de entidades por dominio/tipo."""
+
+    __tablename__ = "brain_entity_hints"
+
+    hint_key        = Column(String(150), nullable=False)
+    domain_key      = Column(String(80),  nullable=True)   # NULL = todos los dominios
+    doc_type_key    = Column(String(80),  nullable=True)   # NULL = todos los tipos
+    label           = Column(String(300), nullable=False)
+    patterns        = Column(JSONB,       default=list)
+    examples        = Column(JSONB,       default=list)
+    search_space_id = Column(
+        Integer,
+        ForeignKey("searchspaces.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    is_active = Column(Boolean, default=True)
+
+
+class BrainVocabulary(BaseModel, TimestampMixin):
+    """Vocabulario controlado: canónica → aliases."""
+
+    __tablename__ = "brain_vocabulary"
+
+    canonical_tag   = Column(String(150), nullable=False)
+    aliases         = Column(JSONB,       default=list)
+    search_space_id = Column(
+        Integer,
+        ForeignKey("searchspaces.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+    )
+    is_active  = Column(Boolean, default=True)
+    updated_at = Column(
+        TIMESTAMP(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+
 # Register model packages that live outside this file so their classes
 # are present in Base.metadata before configure_mappers() resolves any
 # string-based relationship() references.
