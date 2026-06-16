@@ -374,7 +374,7 @@ class IngestRouter:
         )
 
         points = []
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc)
         ingested_at = now.isoformat()
         base_ingest = {
             "ingest_origin": "file_upload",
@@ -472,6 +472,8 @@ class IngestRouter:
         source: str,
         meta: dict,
         ingest_metadata: dict | None = None,
+        *,
+        search_space_id: str = "",      # NUEVO F2
     ) -> None:
         """Almacena el documento completo como punto único en KNOWLEDGE con full_doc=True.
 
@@ -489,7 +491,7 @@ class IngestRouter:
         point_id = (
             int(hashlib.md5(f"{source}::full_doc".encode()).hexdigest(), 16) % (10 ** 15)
         )
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc)
         base_ingest: dict = {
             "ingest_origin": "file_upload",
             "ingest_date": now.strftime("%Y-%m-%d"),
@@ -502,16 +504,17 @@ class IngestRouter:
             id=point_id,
             vector=vector,
             payload={
-                "text": all_text,
-                "source": source,
-                "full_doc": True,
-                "chunk_index": -1,
-                "level": 2,
-                "raw_ingest": True,
-                "kb_id": meta.get("id", ""),
-                "domain": meta.get("domain", ""),
-                "tags": meta.get("tags") or [],
-                "ingested_at": now.isoformat(),
+                "text":            all_text,
+                "source":          source,
+                "search_space_id": search_space_id,   # NUEVO F2
+                "full_doc":        True,
+                "chunk_index":     -1,
+                "level":           2,
+                "raw_ingest":      True,
+                "kb_id":           meta.get("id", ""),
+                "domain":          meta.get("domain", ""),
+                "tags":            meta.get("tags") or [],
+                "ingested_at":     now.isoformat(),
                 **base_ingest,
             },
         )
@@ -528,6 +531,8 @@ class IngestRouter:
         collection: str,
         raw_ingest: bool,
         ingest_metadata: dict = None,
+        *,
+        search_space_id: str = "",      # NUEVO F2
     ) -> dict:
         if not text.strip():
             log.info("[router] _upsert_text_chunks SKIP source='%s' colección='%s' (texto vacío)", source, collection)
@@ -547,7 +552,7 @@ class IngestRouter:
             len(chunks),
         )
         points = []
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc)
         ingested_at = now.isoformat()
         base_ingest = {
             "ingest_origin": "file_upload",
@@ -569,17 +574,18 @@ class IngestRouter:
                     id=point_id,
                     vector=vector,
                     payload={
-                        "text":           chunk,
-                        "source":         source,
-                        "kb_id":          meta.get("id", ""),
-                        "chunk_index":    idx,
-                        "domain":         meta.get("domain", ""),
-                        "subdomain":      meta.get("subdomain", ""),
-                        "tags":           meta.get("tags") or [],
-                        "raw_ingest":     raw_ingest,
-                        "refresh_policy": meta.get("refresh_policy", "never"),
-                        "level":          2,
-                        "ingested_at":    ingested_at,
+                        "text":            chunk,
+                        "source":          source,
+                        "search_space_id": search_space_id,   # NUEVO F2
+                        "kb_id":           meta.get("id", ""),
+                        "chunk_index":     idx,
+                        "domain":          meta.get("domain", ""),
+                        "subdomain":       meta.get("subdomain", ""),
+                        "tags":            meta.get("tags") or [],
+                        "raw_ingest":      raw_ingest,
+                        "refresh_policy":  meta.get("refresh_policy", "never"),
+                        "level":           2,
+                        "ingested_at":     ingested_at,
                         **base_ingest,
                     },
                 )
@@ -598,7 +604,15 @@ class IngestRouter:
             )
         return {"chunks_created": len(points)}
 
-    def _ingest_code(self, code_blocks: list[dict], source: str, meta: dict, ingest_metadata: dict = None) -> dict:
+    def _ingest_code(
+        self,
+        code_blocks: list[dict],
+        source: str,
+        meta: dict,
+        ingest_metadata: dict = None,
+        *,
+        search_space_id: str = "",      # NUEVO F2
+    ) -> dict:
         """
         Vectoriza bloques de código en la colección code.
         Cada bloque se chunkea antes de embeddear para evitar superar el
@@ -614,7 +628,7 @@ class IngestRouter:
             code_model,
         )
         points = []
-        now = datetime.datetime.utcnow()
+        now = datetime.datetime.now(datetime.timezone.utc)
         ingested_at = now.isoformat()
         base_ingest = {
             "ingest_origin": "file_upload",
@@ -665,18 +679,19 @@ class IngestRouter:
                         id=point_id,
                         vector=vector,
                         payload={
-                            "text":        chunk,
-                            "source":      source,
-                            "kb_id":       meta.get("id", ""),
-                            "language":    block.get("language", "unknown"),
-                            "module":      block.get("module", ""),
-                            "function":    block.get("function", ""),
-                            "subdomain":   meta.get("subdomain", ""),
-                            "tags":        meta.get("tags") or [],
-                            "level":       2,
-                            "ingested_at": ingested_at,
-                            "block_index": block_idx,
-                            "chunk_index": chunk_idx,
+                            "text":            chunk,
+                            "source":          source,
+                            "search_space_id": search_space_id,   # NUEVO F2
+                            "kb_id":           meta.get("id", ""),
+                            "language":        block.get("language", "unknown"),
+                            "module":          block.get("module", ""),
+                            "function":        block.get("function", ""),
+                            "subdomain":       meta.get("subdomain", ""),
+                            "tags":            meta.get("tags") or [],
+                            "level":           2,
+                            "ingested_at":     ingested_at,
+                            "block_index":     block_idx,
+                            "chunk_index":     chunk_idx,
                             **base_ingest,
                         },
                     )
@@ -689,7 +704,13 @@ class IngestRouter:
             log.warning("[router] '%s' → 0 chunks de código generados para 'code'", source)
         return {"chunks_created": len(points)}
 
-    def route_raw(self, blocks: list[dict], source: str, ingest_metadata: dict = None) -> dict:
+    def route_raw(
+        self,
+        blocks: list[dict],
+        source: str,
+        search_space_id: str,           # NUEVO F2 — requerido
+        ingest_metadata: dict = None,
+    ) -> dict:
         """
         Enruta bloques directamente a knowledge y/o code SIN síntesis LLM.
 
@@ -718,14 +739,16 @@ class IngestRouter:
 
         if text_blocks:
             results[KNOWLEDGE] = self._ingest_knowledge_raw(
-                text_blocks, source, empty_meta, ingest_metadata
+                text_blocks, source, empty_meta, ingest_metadata,
+                search_space_id=search_space_id,
             )
         else:
             results[KNOWLEDGE] = {"chunks_created": 0}
 
         if code_blocks:
             results[CODE] = self._ingest_code(
-                code_blocks, source, empty_meta, ingest_metadata
+                code_blocks, source, empty_meta, ingest_metadata,
+                search_space_id=search_space_id,
             )
         else:
             results[CODE] = {"chunks_created": 0}

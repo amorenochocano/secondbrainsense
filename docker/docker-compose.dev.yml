@@ -389,7 +389,7 @@ services:
   #     pytest tests/integration/test_brain_e2e.py -v
   # ===========================================================================
   tests:
-    container_name: sbs-brain-tests
+    container_name: sbs-brain-test
     build: *tests-build
     profiles:
       - tests

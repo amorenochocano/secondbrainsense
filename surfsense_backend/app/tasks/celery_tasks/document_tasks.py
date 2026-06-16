@@ -686,8 +686,42 @@ async def _process_file_upload(
                     },
                 )
 
-                # En F1 guardamos el processed_text como markdown en PostgreSQL.
-                # En F2/F3 se añade la vectorización en Qdrant.
+                # F2: vectorizar en Qdrant con IngestRouter + search_space_id
+                # QdrantManager.get_instance() devuelve el singleton inicializado
+                # en el lifespan. IngestRouter recibe su client directamente.
+                # En F3, md_content se sustituirá por el passport_md real del synthesizer.
+                # En F2 usamos processed_text como placeholder — el search_space_id
+                # en los payloads es lo crítico para desbloquear el router L2 (F4).
+                from app.brain.qdrant_manager import QdrantManager
+                from app.brain.ingest_router import IngestRouter
+                from datetime import date
+
+                qdrant_mgr = QdrantManager.get_instance()
+                ingest_router = IngestRouter(qdrant_client=qdrant_mgr.client)
+
+                await task_logger.log_task_progress(
+                    log_entry,
+                    f"[brain_pipeline] Vectorizando en Qdrant: {filename}",
+                    {"pipeline": "brain", "processing_stage": "vectorizing"},
+                )
+
+                ingest_router.route(
+                    md_content=brain_result["processed_text"],
+                    blocks=brain_result["blocks"],
+                    source=filename,
+                    search_space_id=str(search_space_id),
+                    ingest_metadata={
+                        "ingest_origin": "file_upload",
+                        "ingest_date":   date.today().isoformat(),
+                    },
+                )
+
+                logger.info(
+                    "[_process_file_upload] Vectorización Qdrant completada: file=%s space=%s",
+                    filename, search_space_id,
+                )
+
+                # Guardar processed_text en PostgreSQL (fuente de verdad relacional)
                 from app.tasks.document_processors.markdown_processor import (
                     add_received_markdown_file_document,
                 )

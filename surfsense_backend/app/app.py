@@ -644,6 +644,19 @@ async def lifespan(app: FastAPI):
             logging.getLogger(__name__).warning(
                 "[startup] BrainWatcher no disponible (non-fatal)", exc_info=True
             )
+
+    # F2 — Inicializar colecciones Qdrant (brain + knowledge con índices de payload)
+    # No bloqueamos el arranque si falla — _ingest_code gestiona CODE dinámicamente
+    try:
+        from app.brain.qdrant_manager import QdrantManager
+        qdrant_mgr = QdrantManager.get_instance()
+        qdrant_mgr.ensure_collections()
+        logging.getLogger(__name__).info("[startup] QdrantManager: colecciones inicializadas")
+    except Exception as exc:
+        logging.getLogger(__name__).error(
+            "[startup] QdrantManager: error en ensure_collections: %s", exc, exc_info=True
+        )
+
     initialize_openrouter_integration()
     _start_openrouter_background_refresh()
     initialize_pricing_registration()
@@ -1024,6 +1037,10 @@ from app.routes.anonymous_chat_routes import (  # noqa: E402
 app.include_router(anonymous_chat_router)
 
 app.include_router(crud_router, prefix="/api/v1", tags=["crud"])
+
+# F2.5 — Endpoints admin Qdrant Brain
+from app.routes.admin_routes import router as admin_qdrant_router  # noqa: E402
+app.include_router(admin_qdrant_router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["health"])
