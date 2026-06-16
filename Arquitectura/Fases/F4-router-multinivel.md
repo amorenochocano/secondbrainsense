@@ -1,460 +1,1096 @@
-# F4 — Router Multinivel L1→L2→L0
+﻿# F4 — Router Multinivel L1→L2→BM25→Web→L0
 **Duración:** 1 semana  
 **Equipo:** Backend Senior (1) + IA Engineer (1)  
 **Dependencias:** F3 completada  
-**Entregable:** Las consultas se resuelven en cascade: L1 (pasaportes) → L2 (chunks detalle) → L0 (LLM libre)
+**Entregable:** Cascada de retrieval con 5 niveles. El router devuelve el contexto más rico posible antes de llegar al LLM libre. Configurable por modelo (3B vs 7B vs Claude). `search_space_id` en todas las búsquedas.
 
 ---
 
 ## Objetivo
 
-Sustituir la búsqueda híbrida plana de SurfSense por el router multinivel de Second Brain. La diferencia clave: SurfSense busca en todos los chunks simultáneamente. BrainSense primero identifica qué documentos son relevantes (L1), luego profundiza en sus chunks (L2), y solo cae a LLM libre (L0) cuando no hay contexto relevante.
+Sustituir la búsqueda híbrida plana de SurfSense por el router multinivel de Second Brain, **extendiendo L0 con BM25 y búsqueda web** — capacidades que SurfSense ya tiene operativas y que son críticas cuando el modelo LLM es pequeño (3B/7B local).
 
 **Antes (SurfSense):**
 ```
 query → hybrid search (pgvector + BM25) → top-K chunks → LLM → respuesta
 ```
 
-**Después (BrainSense F4):**
+**Después (BrainSense F4) — cascada extendida:**
 ```
-query → L1: buscar en brain (pasaportes) ─── relevante? ──→ L2: buscar en knowledge+code
-                                          └── no relevante → L0: LLM libre sin RAG
+query → L1: brain semántico (pasaportes Qdrant)
+           │ relevante (score ≥ L1_MIN_SCORE)
+           ├──→ L2: knowledge+code (Qdrant + cross-encoder reranking)
+           │        → contexto semántico rico → LLM
+           │
+           └ no relevante
+              → L2.b: BM25 PostgreSQL (tsvector — <100ms, sin coste extra)
+                       │ hits → contexto keyword preciso → LLM
+                       │
+                       └ sin hits (o BRAIN_WEB_ENABLED=true)
+                          → L2.c: SearXNG / Tavily (web — ya en SurfSense)
+                                   │ resultados → contexto web → LLM
+                                   │
+                                   └ sin resultados o BRAIN_L0_ENABLED=false
+                                      → L0: LLM libre (último recurso)
 ```
+
+**Por qué esta cascada importa especialmente con modelos pequeños:**
+
+| Modelo | Context tokens | L0 sin contexto | Con BM25/Web |
+|--------|----------------|-----------------|--------------|
+| qwen2.5-coder:3b | 6K | Alta alucinación | Respuesta útil con 1-2 chunks |
+| qwen2.5-coder:7b | 28K | Alucinación moderada | Buena con 5-8 chunks |
+| llama3.1:8b | 30K | Moderada | Buena |
+| Claude / GPT-4 | 180K | Aceptable | Excelente |
+
+Para modelos ≤7B en CPU, **L0 libre es casi inutilizable en contextos técnicos**. Un chunk BM25 de 300 tokens sobre la pregunta exacta es más valioso que la capacidad de razonamiento del modelo sin contexto. **La cascada convierte L0 en verdadero último recurso.**
 
 ---
 
-## F4.1 — BrainRouter: el cascade L1→L2→L0 (Día 1-2)
+## F4.0 — Estado del codebase: qué existe y qué adaptar (Día 0)
 
-**Fichero:** `surfsense_backend/app/brain/router.py` ← ya existe en Second Brain, adaptar
+| Fichero | Estado | Acción F4 |
+|---------|--------|-----------|
+| `app/brain/router.py` | ✅ Existe — `BrainRouter()` sin args, síncrono, devuelve `dict` | Añadir `search_space_id`, BM25 hook, web hook |
+| `app/retriever/chunks_hybrid_search.py` | ✅ Existe — `full_text_search()` con `search_space_id` | Reutilizar directamente en L2.b |
+| `app/agents/chat/shared/tools/web_search.py` | ✅ Existe — `web_search_service.search()` async | Reutilizar directamente en L2.c |
+| `app/brain/model_profiles.py` | ✅ Existe — `ModelProfile` con `context_tokens`, `prompt_tier` | Leer para presupuesto de contexto |
+| `app/routes/brain_routes.py` | ❌ No existe | **CREAR** |
+
+**Tres correcciones críticas en `router.py` antes de extender:**
+
+| Gap | Problema actual | Fix |
+|----|----------------|-----|
+| G1 | Constructor sin args — no soporta multi-tenant | Añadir `search_space_id` al constructor |
+| G7 | `_search()` y `_search_filtered()` no filtran por `search_space_id` | Añadir filtro `FieldCondition` en ambos métodos |
+| G3 | `_build_response()` devuelve `ScoredPoint` de Qdrant | El router devuelve `dict` — la ruta FastAPI extrae `payload` para el LLM |
+
+> **Nota importante**: el `BrainRouter` es **retrieval-only** — devuelve contexto, no respuesta. La llamada al LLM ocurre en la ruta FastAPI (`brain_routes.py`), no dentro del router. Esto permite reutilizar el router desde LangGraph (chat de SurfSense) sin duplicar lógica.
+
+---
+
+## F4.1 — Cambios en `router.py`: `search_space_id` + L2.b + L2.c (Día 1-2)
+
+**Fichero:** `surfsense_backend/app/brain/router.py` ← extender
+
+### Constructor: añadir `search_space_id`
 
 ```python
-# router.py — BrainRouter
-import logging
-from dataclasses import dataclass
-from app.brain.qdrant_manager import QdrantManager
-from app.brain.llm_client import BrainLLMClient
-
-logger = logging.getLogger(__name__)
-
-@dataclass
-class QueryResult:
-    answer: str
-    level: int              # 0=LLM libre, 1=pasaporte, 2=chunks detalle
-    sources: list[str]      # slugs de documentos fuente
-    chunks_used: list[dict] # chunks que formaron el contexto
-    level_label: str        # "🧠 Brain", "📚 Knowledge", "🤖 LLM"
-
+# ANTES:
 class BrainRouter:
-    """
-    Router multinivel: L1 → L2 → L0
-    L1: colección brain   (pasaportes semánticos)
-    L2: colecciones knowledge + code (chunks de detalle)
-    L0: LLM sin RAG (fallback cuando no hay contexto relevante)
-    """
+    def __init__(self):
+        self._qdrant = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 
-    def __init__(
-        self,
-        llm_client: BrainLLMClient,
-        qdrant: QdrantManager,
-        search_space_id: str,
-        top_k_l1: int = 5,
-        top_k_l2: int = 10,
-        l1_threshold: float = 0.45,  # score mínimo para considerar L1 relevante
-        l2_threshold: float = 0.40,
-        force_l0: bool = False,
-    ):
-        self.llm = llm_client
-        self.qdrant = qdrant
+# DESPUÉS:
+class BrainRouter:
+    def __init__(self, search_space_id: str = ""):
+        self._qdrant = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
         self.search_space_id = search_space_id
-        self.top_k_l1 = top_k_l1
-        self.top_k_l2 = top_k_l2
-        self.l1_threshold = l1_threshold
-        self.l2_threshold = l2_threshold
-        self.force_l0 = force_l0
+```
 
-    async def query(self, question: str, chat_history: list[dict] = None) -> QueryResult:
-        """Punto de entrada principal del router."""
+### Añadir filtro `search_space_id` en `_search()`
 
-        if self.force_l0:
-            return await self._resolve_l0(question, chat_history)
-
-        # Extraer keywords para detección de relevancia
-        keywords = _keywords_from(question)
-
-        # ── NIVEL 1: buscar en pasaportes ─────────────
-        l1_results = await self._search_l1(question)
-        l1_relevant = [r for r in l1_results if r["score"] >= self.l1_threshold]
-
-        if not l1_relevant:
-            logger.info(f"L1 sin resultados relevantes (threshold={self.l1_threshold}) → L0")
-            return await self._resolve_l0(question, chat_history)
-
-        # Verificar que los chunks L1 contienen las keywords
-        l1_with_keywords = [
-            r for r in l1_relevant
-            if _chunks_contain_keywords(r["text"], keywords)
-        ]
-
-        if not l1_with_keywords:
-            logger.info("L1 sin matches de keywords → L0")
-            return await self._resolve_l0(question, chat_history)
-
-        # Fuentes identificadas en L1
-        l1_sources = list(dict.fromkeys(r["source"] for r in l1_with_keywords))
-        logger.info(f"L1: {len(l1_with_keywords)} chunks relevantes, sources: {l1_sources}")
-
-        # ── ¿La respuesta está en L1? ──────────────────
-        # Si el score es muy alto y el chunk es completo, responder desde L1
-        best_l1 = l1_with_keywords[0]
-        if best_l1["score"] >= 0.75 and _is_complete_answer(best_l1["text"], question):
-            return await self._resolve_l1(question, l1_with_keywords, chat_history)
-
-        # ── NIVEL 2: profundizar en chunks de detalle ──
-        l2_results = await self._search_l2(question, filter_sources=l1_sources)
-        l2_relevant = [r for r in l2_results if r["score"] >= self.l2_threshold]
-
-        if not l2_relevant:
-            logger.info("L2 sin resultados → responder desde L1")
-            return await self._resolve_l1(question, l1_with_keywords, chat_history)
-
-        logger.info(f"L2: {len(l2_relevant)} chunks de detalle")
-        return await self._resolve_l2(question, l1_with_keywords, l2_relevant, chat_history)
-
-    async def _search_l1(self, question: str) -> list[dict]:
-        """Buscar en colección brain (pasaportes)."""
-        vector = await self.llm.embed_text(question, model="nomic-embed-text")
-        return self.qdrant.search(
-            collection_name="brain",
+```python
+# ANTES:
+def _search(self, collection: str, query: str, top_k: int) -> list:
+    vector = _embed_for_collection(query, collection)
+    try:
+        return self._qdrant.search(
+            collection_name=collection,
             query_vector=vector,
-            search_space_id=self.search_space_id,
-            top_k=self.top_k_l1,
+            limit=top_k,
+            with_payload=True,
         )
 
-    async def _search_l2(self, question: str, filter_sources: list[str]) -> list[dict]:
-        """Buscar en knowledge + code, filtrando por fuentes identificadas en L1."""
-        # Embedding para knowledge (nomic 768d)
-        vector_text = await self.llm.embed_text(question, model="nomic-embed-text")
-        knowledge_results = self.qdrant.search(
-            collection_name="knowledge",
-            query_vector=vector_text,
-            search_space_id=self.search_space_id,
-            top_k=self.top_k_l2,
-            filter_by_sources=filter_sources,
+# DESPUÉS:
+def _search(self, collection: str, query: str, top_k: int) -> list:
+    from qdrant_client.models import Filter, FieldCondition, MatchValue
+    vector = _embed_for_collection(query, collection)
+    qdrant_filter = None
+    if self.search_space_id:
+        qdrant_filter = Filter(must=[
+            FieldCondition(key="search_space_id", match=MatchValue(value=self.search_space_id))
+        ])
+    try:
+        return self._qdrant.search(
+            collection_name=collection,
+            query_vector=vector,
+            query_filter=qdrant_filter,
+            limit=top_k,
+            with_payload=True,
+        )
+```
+
+> Aplicar el mismo patrón en `_search_filtered()` — añadir `search_space_id` como condición extra en `must`.
+
+### Nuevo método `_search_bm25()` — reutiliza `ChucksHybridSearchRetriever`
+
+```python
+def _search_bm25(
+    self,
+    question: str,
+    search_space_id_int: int,   # ChucksHybridSearchRetriever usa int, no UUID str
+    db_session,
+    top_k: int = 5,
+) -> list[dict]:
+    """
+    Búsqueda keyword (tsvector PostgreSQL) sobre la tabla chunks de SurfSense.
+    Reutiliza ChucksHybridSearchRetriever.full_text_search() que ya existe.
+
+    Retorna lista de dicts con: text, source, score (ts_rank).
+    """
+    import asyncio
+    from app.retriever.chunks_hybrid_search import ChucksHybridSearchRetriever
+
+    retriever = ChucksHybridSearchRetriever(db_session)
+
+    # full_text_search es async — ejecutar en el event loop del caller
+    # (la ruta FastAPI pasa db_session como parámetro)
+    chunks = asyncio.get_event_loop().run_until_complete(
+        retriever.full_text_search(
+            query_text=question,
+            top_k=top_k,
+            search_space_id=search_space_id_int,
+        )
+    )
+    # Normalizar al formato dict del router
+    return [
+        {
+            "text":   c.content if hasattr(c, "content") else str(c),
+            "source": getattr(getattr(c, "document", None), "title", ""),
+            "score":  0.0,  # BM25 no devuelve score numérico comparable — usar flag
+            "level":  "bm25",
+        }
+        for c in (chunks or [])
+    ]
+```
+
+> **Nota**: `ChucksHybridSearchRetriever` es **async**. El router actual es **síncrono**. Para evitar romper el router, la llamada BM25 se hace desde la ruta FastAPI (que sí es async) — ver F4.2. No envolver con `run_until_complete` dentro del router síncrono.
+
+### Nuevo método `_search_web()` — reutiliza `web_search_service`
+
+```python
+# No se añade al router síncrono — se llama directamente desde brain_routes.py
+# web_search_service.search() es async y ya tiene su propia abstracción
+```
+
+### Extensión del método `route()`: hook para BM25/Web
+
+El método `route()` existente devuelve el dict de respuesta. Se añade un campo extra para indicar si el resultado viene de L1/L2 o si debe intentarse BM25/Web:
+
+```python
+def route(self, question: str, top_k: int = 4, ...) -> dict:
+    # ... lógica existente sin cambios ...
+
+    # Si L1 y L2 no tienen resultados:
+    if self.needs_level2(question, l1_results) and l1_max < L1_MIN_SCORE:
+        log.info("[brain_router] L1+L2 sin resultados relevantes → señal para L2.b/L2.c")
+        return self._build_response(
+            level=0,
+            collection=BRAIN,
+            results=[],
+            fallback_needed=True,   # ← señal para brain_routes.py
         )
 
-        # Embedding para code (qwen3 2560d) — solo si la query parece técnica
-        code_results = []
-        if _is_code_query(question):
-            vector_code = await self.llm.embed_text(question, model="qwen3-embedding:4b")
-            code_results = self.qdrant.search(
-                collection_name="code",
-                query_vector=vector_code,
-                search_space_id=self.search_space_id,
-                top_k=self.top_k_l2,
-                filter_by_sources=filter_sources,
-            )
-
-        # Merge y RRF fusion
-        all_results = knowledge_results + code_results
-        return _rrf_fusion(all_results, k=60)
-
-    async def _resolve_l1(self, question: str, chunks: list[dict],
-                           history: list[dict]) -> QueryResult:
-        context = "\n\n---\n\n".join(c["text"] for c in chunks[:3])
-        answer = await self.llm.generate(
-            prompt=f"Pregunta: {question}\n\nContexto (resumen del conocimiento):\n{context}",
-            system=L1_SYSTEM_PROMPT,
-        )
-        return QueryResult(
-            answer=answer, level=1,
-            sources=list(dict.fromkeys(c["source"] for c in chunks)),
-            chunks_used=chunks[:3],
-            level_label="🧠 Brain",
-        )
-
-    async def _resolve_l2(self, question: str, l1_chunks: list[dict],
-                           l2_chunks: list[dict], history: list[dict]) -> QueryResult:
-        # Combinar contexto L1 (resumen) + L2 (detalle)
-        l1_context = "\n\n".join(c["text"] for c in l1_chunks[:2])
-        l2_context = "\n\n---\n\n".join(c["text"] for c in l2_chunks[:5])
-        context = f"## Resumen\n{l1_context}\n\n## Detalle\n{l2_context}"
-
-        answer = await self.llm.generate(
-            prompt=f"Pregunta: {question}\n\nContexto:\n{context}",
-            system=L2_SYSTEM_PROMPT,
-        )
-        all_sources = list(dict.fromkeys(
-            c["source"] for c in (l1_chunks + l2_chunks)
-        ))
-        return QueryResult(
-            answer=answer, level=2,
-            sources=all_sources,
-            chunks_used=l2_chunks[:5],
-            level_label="📚 Knowledge",
-        )
-
-    async def _resolve_l0(self, question: str, history: list[dict]) -> QueryResult:
-        """LLM libre sin RAG."""
-        history_text = "\n".join(
-            f"{m['role']}: {m['content']}" for m in (history or [])[-6:]
-        )
-        answer = await self.llm.generate(
-            prompt=f"{history_text}\nUsuario: {question}",
-            system=L0_SYSTEM_PROMPT,
-        )
-        return QueryResult(
-            answer=answer, level=0,
-            sources=[], chunks_used=[],
-            level_label="🤖 LLM",
-        )
-
-
-# ── Helpers ────────────────────────────────────────────────────
-
-def _keywords_from(question: str) -> list[str]:
-    """Extrae keywords significativas de la pregunta."""
-    stopwords = {"el","la","los","las","un","una","de","del","en","que","es","se",
-                 "por","para","con","como","qué","cómo","cuál","cuáles","dónde"}
-    words = question.lower().split()
-    keywords = [w.strip("?¿.,;:") for w in words
-                if len(w) > 3 and w not in stopwords]
-    return keywords[:10]
-
-def _chunks_contain_keywords(text: str, keywords: list[str]) -> bool:
-    """Al menos 1 keyword debe estar en el chunk."""
-    text_lower = text.lower()
-    return any(kw in text_lower for kw in keywords)
-
-def _is_code_query(question: str) -> bool:
-    """Detecta si la query probablemente necesita buscar en código."""
-    code_signals = ["función","función","clase","class","def ","import","query",
-                    "sql","procedure","método","implementación","código","script"]
-    q = question.lower()
-    return any(s in q for s in code_signals)
-
-def _is_complete_answer(text: str, question: str) -> bool:
-    """Heurística: el chunk tiene suficiente contenido para responder."""
-    return len(text) > 500
-
-def _rrf_fusion(results: list[dict], k: int = 60) -> list[dict]:
-    """Reciprocal Rank Fusion para mergear resultados de knowledge y code."""
-    scores = {}
-    for rank, r in enumerate(results):
-        key = r.get("source", "") + str(r.get("chunk_index", 0))
-        scores[key] = scores.get(key, 0) + 1 / (k + rank + 1)
-
-    seen_keys = set()
-    merged = []
-    for r in results:
-        key = r.get("source", "") + str(r.get("chunk_index", 0))
-        if key not in seen_keys:
-            seen_keys.add(key)
-            r["rrf_score"] = scores[key]
-            merged.append(r)
-
-    return sorted(merged, key=lambda x: x["rrf_score"], reverse=True)
-
-
-# ── System prompts ─────────────────────────────────────────────
-
-L0_SYSTEM_PROMPT = """Eres un asistente técnico experto. Responde basándote en tu conocimiento general.
-No tienes contexto de documentos específicos para esta pregunta."""
-
-L1_SYSTEM_PROMPT = """Eres un asistente técnico. Tienes acceso a resúmenes ejecutivos de documentos.
-Responde con precisión citando el documento fuente. Si el resumen no es suficiente, indícalo."""
-
-L2_SYSTEM_PROMPT = """Eres un asistente técnico experto. Tienes acceso al detalle completo de los documentos.
-Responde con precisión técnica, cita las fuentes específicas y menciona el nivel de detalle disponible."""
+def _build_response(self, level, collection, results, level1=None, fallback_needed=False) -> dict:
+    return {
+        "level_used":           level,
+        "collection_used":      collection,
+        "results":              results,
+        "sources_consulted":    self._sources_from(results),
+        "drill_down_available": level == 1 and len(results) > 0,
+        "level1_results":       level1,
+        "fallback_needed":      fallback_needed,  # ← NUEVO — trigger BM25/Web en la ruta
+    }
 ```
 
 ---
 
-## F4.2 — Endpoint de query en FastAPI (Día 3)
+## F4.2 — `brain_routes.py`: cascada completa + presupuesto de contexto (Día 2-3)
+
+**Fichero:** `surfsense_backend/app/routes/brain_routes.py` ← **NUEVO**
+
+La ruta FastAPI implementa la cascada completa porque los niveles L2.b y L2.c son **async** y requieren DB session y web service — dependencias que no pertenecen al router síncrono.
 
 ```python
-# surfsense_backend/app/routes/brain_routes.py ← NUEVO
+# surfsense_backend/app/routes/brain_routes.py
+import logging
+import os
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.brain.router import BrainRouter
-from app.brain.qdrant_manager import QdrantManager
-from app.brain.llm_client import BrainLLMClient
-from app.utils.auth import get_current_user
+from app.brain.llm_client import LLMClient, SYNTHESIS_MODEL, DEFAULT_PROVIDER
+from app.brain.model_profiles import get_profile
+from app.db import get_async_session
+from app.users import current_active_user, User
 
-router = APIRouter(prefix="/brain", tags=["brain"])
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/v1/brain", tags=["brain"])
 
-class QueryRequest(BaseModel):
+# ── Configuración de la cascada ─────────────────────────────────────────────
+BRAIN_BM25_ENABLED    = os.getenv("BRAIN_BM25_ENABLED",    "true").lower() == "true"
+BRAIN_WEB_ENABLED     = os.getenv("BRAIN_WEB_ENABLED",     "true").lower() == "true"
+BRAIN_L0_ENABLED      = os.getenv("BRAIN_L0_ENABLED",      "true").lower() == "true"
+BRAIN_WEB_MAX_RESULTS = int(os.getenv("BRAIN_WEB_MAX_RESULTS", "5"))
+
+# ── Presupuesto de contexto por tier de modelo ──────────────────────────────
+# Cantidad máxima de chunks a incluir en el prompt por tier
+_CHUNK_BUDGET = {
+    "small":  2,   # 3B-4B: 6K tokens — máximo 2 chunks de ~500 tokens
+    "medium": 6,   # 7B-14B: 28K tokens — hasta 6 chunks
+    "claude": 15,  # API: 180K tokens — sin restricción práctica
+}
+
+# Longitud máxima de cada chunk en chars para el prompt por tier
+_CHUNK_MAX_CHARS = {
+    "small":  400,   # chunks cortos para no saturar contexto
+    "medium": 800,
+    "claude": 2000,
+}
+
+
+class BrainQueryRequest(BaseModel):
     question: str
     search_space_id: str
     chat_history: list[dict] = []
-    force_l0: bool = False
-    top_k_l1: int = 5
-    top_k_l2: int = 10
+    top_k: int = 4
+    force_level: int | None = None     # 1 ó 2 — forzar nivel del router
+    force_l0: bool = False             # saltar todo el retrieval directamente a L0
 
-class QueryResponse(BaseModel):
+
+class BrainQueryResponse(BaseModel):
     answer: str
-    level: int
-    level_label: str
+    level_used: int                    # 1=brain, 2=knowledge/code, 3=bm25, 4=web, 0=libre
+    level_label: str                   # "🧠 Brain", "📚 Knowledge", "🔍 BM25", "🌐 Web", "🤖 LLM"
     sources: list[str]
-    chunks_used: list[dict]
+    context_chunks: int                # nº de chunks usados en el prompt
+    model_tier: str                    # "small" | "medium" | "claude"
 
-@router.post("/query", response_model=QueryResponse)
+
+@router.post("/query", response_model=BrainQueryResponse)
 async def brain_query(
-    req: QueryRequest,
-    current_user = Depends(get_current_user),
+    req: BrainQueryRequest,
+    current_user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_async_session),
 ):
-    """Consulta multinivel L1→L2→L0."""
-    # Verificar que el usuario tiene acceso al Search Space
-    _verify_search_space_access(current_user, req.search_space_id)
+    """
+    Router de consulta multinivel L1→L2→BM25→Web→L0.
+    La cascada se detiene en el primer nivel que produce contexto relevante.
+    El presupuesto de contexto (nº y longitud de chunks) se adapta al modelo activo.
+    """
+    # ── Perfil del modelo activo ──────────────────────────────────────────
+    profile = get_profile(SYNTHESIS_MODEL)
+    tier    = profile.prompt_tier if profile else "medium"
+    chunk_budget    = _CHUNK_BUDGET.get(tier, 6)
+    chunk_max_chars = _CHUNK_MAX_CHARS.get(tier, 800)
 
-    llm_client = BrainLLMClient()
-    qdrant = QdrantManager.get_instance()
-
-    brain_router = BrainRouter(
-        llm_client=llm_client,
-        qdrant=qdrant,
-        search_space_id=req.search_space_id,
-        top_k_l1=req.top_k_l1,
-        top_k_l2=req.top_k_l2,
-        force_l0=req.force_l0,
+    logger.info(
+        "[brain_query] question=%r space=%s model=%s tier=%s budget=%d",
+        req.question[:60], req.search_space_id, SYNTHESIS_MODEL, tier, chunk_budget
     )
 
-    result = await brain_router.query(
+    # ── L0 forzado ────────────────────────────────────────────────────────
+    if req.force_l0:
+        answer = _call_llm(req.question, context="", tier=tier, history=req.chat_history)
+        return BrainQueryResponse(answer=answer, level_used=0, level_label="🤖 LLM",
+                                   sources=[], context_chunks=0, model_tier=tier)
+
+    # ── L1 + L2: router síncrono Brain (Qdrant) ───────────────────────────
+    brain_router = BrainRouter(search_space_id=req.search_space_id)
+    route_result = brain_router.route(
         question=req.question,
-        chat_history=req.chat_history,
+        top_k=req.top_k,
+        force_level=req.force_level,
     )
 
-    return QueryResponse(
-        answer=result.answer,
-        level=result.level,
-        level_label=result.level_label,
-        sources=result.sources,
-        chunks_used=result.chunks_used,
-    )
+    if not route_result.get("fallback_needed") and route_result.get("results"):
+        # L1 o L2 devolvieron resultados
+        level  = route_result["level_used"]
+        chunks = _extract_chunks(route_result["results"], chunk_budget, chunk_max_chars)
+        context = _build_context(chunks)
+        sources = route_result["sources_consulted"]
+        label   = "🧠 Brain" if level == 1 else "📚 Knowledge"
 
-@router.get("/{source}")
-async def get_passport(source: str, current_user = Depends(get_current_user)):
+        answer = _call_llm(req.question, context=context, tier=tier, history=req.chat_history)
+        return BrainQueryResponse(answer=answer, level_used=level, level_label=label,
+                                   sources=sources, context_chunks=len(chunks), model_tier=tier)
+
+    # ── L2.b: BM25 PostgreSQL ─────────────────────────────────────────────
+    if BRAIN_BM25_ENABLED:
+        logger.info("[brain_query] L1/L2 sin resultados → intentando BM25")
+        try:
+            from app.retriever.chunks_hybrid_search import ChucksHybridSearchRetriever
+            # search_space_id en SurfSense es int en el retriever — obtener de la sesión
+            space_int = await _resolve_search_space_int(req.search_space_id, db)
+            if space_int is not None:
+                retriever  = ChucksHybridSearchRetriever(db)
+                bm25_chunks = await retriever.full_text_search(
+                    query_text=req.question,
+                    top_k=chunk_budget * 2,
+                    search_space_id=space_int,
+                )
+                if bm25_chunks:
+                    chunks  = _extract_chunks_from_orm(bm25_chunks, chunk_budget, chunk_max_chars)
+                    context = _build_context(chunks)
+                    sources = list({getattr(c, "document", None) and c.document.title or "" for c in bm25_chunks[:chunk_budget]})
+                    logger.info("[brain_query] BM25 → %d chunks", len(chunks))
+
+                    answer = _call_llm(req.question, context=context, tier=tier, history=req.chat_history)
+                    return BrainQueryResponse(answer=answer, level_used=3, level_label="🔍 BM25",
+                                               sources=sources, context_chunks=len(chunks), model_tier=tier)
+        except Exception as exc:
+            logger.warning("[brain_query] BM25 falló: %s — continuando cascada", exc)
+
+    # ── L2.c: SearXNG web search con query rewriting ─────────────────────
+    if BRAIN_WEB_ENABLED:
+        logger.info("[brain_query] BM25 sin resultados → intentando web (SearXNG)")
+        try:
+            from app.services import web_search_service
+            if web_search_service.is_available():
+                # Query rewriting: la pregunta en lenguaje natural → keywords
+                # Mejora significativa de la calidad de resultados en SearXNG
+                search_query = await _rewrite_query_for_web(req.question)
+                logger.info(
+                    "[brain_query] QueryRewrite: %r → %r",
+                    req.question[:50], search_query
+                )
+
+                _, web_docs = await web_search_service.search(
+                    query=search_query,    # ← query optimizado, no la pregunta cruda
+                    search_space_id=None,  # web search no filtra por space
+                    top_k=BRAIN_WEB_MAX_RESULTS,
+                )
+                if web_docs:
+                    chunks = []
+                    for d in web_docs[:chunk_budget]:
+                        content = (d.get("content") or "")[:chunk_max_chars]
+                        title   = (d.get("document", {}) or {}).get("title", "web")
+                        if content.strip():
+                            chunks.append({"text": content, "source": title})
+
+                    if chunks:
+                        context = _build_context(chunks)
+                        sources = [c["source"] for c in chunks]
+                        logger.info("[brain_query] Web → %d snippets", len(chunks))
+
+                        answer = _call_llm(req.question, context=context, tier=tier, history=req.chat_history)
+                        return BrainQueryResponse(answer=answer, level_used=4, level_label="🌐 Web",
+                                                   sources=sources, context_chunks=len(chunks), model_tier=tier)
+        except Exception as exc:
+            logger.warning("[brain_query] Web search falló: %s — cayendo a L0", exc)
+
+    # ── L0: LLM libre — último recurso ────────────────────────────────────
+    if not BRAIN_L0_ENABLED:
+        raise HTTPException(
+            status_code=404,
+            detail="No se encontró contexto relevante y L0 está deshabilitado (BRAIN_L0_ENABLED=false)"
+        )
+
+    logger.info(
+        "[brain_query] Cascada agotada → L0 libre (tier=%s). "
+        "Para modelos ≤7B considerar activar BRAIN_BM25_ENABLED/BRAIN_WEB_ENABLED.",
+        tier,
+    )
+    answer = _call_llm(req.question, context="", tier=tier, history=req.chat_history)
+    return BrainQueryResponse(answer=answer, level_used=0, level_label="🤖 LLM",
+                               sources=[], context_chunks=0, model_tier=tier)
+
+
+# ── Endpoints CRUD de pasaportes ─────────────────────────────────────────────
+
+@router.get("/passport/{source}")
+async def get_passport(
+    source: str,
+    current_user: User = Depends(current_active_user),
+):
     """Lee el pasaporte .md de un documento."""
     from app.brain.writer import BrainWriter
     writer = BrainWriter()
-    try:
-        return {"source": source, "passport_md": writer.read(source)}
-    except FileNotFoundError:
+    content = writer.read(source)   # devuelve None si no existe (no lanza excepción)
+    if content is None:
         raise HTTPException(404, detail=f"Pasaporte no encontrado: {source}")
+    return {"source": source, "passport_md": content}
 
-@router.delete("/{source}")
-async def delete_brain_document(source: str, current_user = Depends(get_current_user)):
-    """Elimina un documento: pasaporte .md + vectores Qdrant."""
+
+@router.delete("/document/{source}")
+async def delete_brain_document(
+    source: str,
+    search_space_id: str,           # requerido — aislamiento multi-tenant
+    current_user: User = Depends(current_active_user),
+):
+    """Elimina pasaporte .md + vectores Qdrant. Requiere search_space_id."""
     from app.brain.writer import BrainWriter
-    writer = BrainWriter()
-    qdrant = QdrantManager.get_instance()
-    writer.delete(source)
-    qdrant.delete_by_source(source)
+    from app.brain.qdrant_manager import QdrantManager
+    BrainWriter().delete(source)
+    QdrantManager.get_instance().delete_by_source(source=source, search_space_id=search_space_id)
     return {"status": "deleted", "source": source}
 
-@router.post("/{source}/resynthesize")
-async def resynthesize_document(source: str, current_user = Depends(get_current_user)):
-    """Re-sintetizar pasaporte desde la fuente original."""
-    # Buscar el document en PostgreSQL por source slug
-    # Re-ejecutar el pipeline desde Fase 1
+
+@router.post("/document/{source}/resynthesize")
+async def resynthesize_document(
+    source: str,
+    current_user: User = Depends(current_active_user),
+):
+    """Re-sintetizar pasaporte desde la fuente original (vía tarea Celery)."""
     from app.tasks.document.resynthesize_task import resynthesize_task
     resynthesize_task.delay(source=source, user_id=str(current_user.id))
     return {"status": "queued", "source": source}
+
+
+# ── Helpers internos ──────────────────────────────────────────────────────────
+
+def _extract_chunks(qdrant_results: list, budget: int, max_chars: int) -> list[dict]:
+    """Extrae y trunca chunks de resultados Qdrant (ScoredPoint)."""
+    chunks = []
+    for r in qdrant_results[:budget]:
+        payload = r.payload if hasattr(r, "payload") else {}
+        text    = (payload.get("text", "") or "")[:max_chars]
+        source  = payload.get("source", "")
+        if text.strip():
+            chunks.append({"text": text, "source": source})
+    return chunks
+
+
+def _extract_chunks_from_orm(orm_chunks, budget: int, max_chars: int) -> list[dict]:
+    """Extrae y trunca chunks de ORM Chunk objects."""
+    result = []
+    for c in orm_chunks[:budget]:
+        text = (getattr(c, "content", "") or "")[:max_chars]
+        if text.strip():
+            result.append({"text": text, "source": getattr(getattr(c, "document", None), "title", "")})
+    return result
+
+
+def _build_context(chunks: list[dict]) -> str:
+    """Construye el string de contexto para el prompt LLM."""
+    parts = []
+    for i, c in enumerate(chunks):
+        source_label = f"[{c['source']}] " if c.get("source") else ""
+        parts.append(f"{source_label}{c['text']}")
+    return "\n\n---\n\n".join(parts)
+
+
+def _call_llm(question: str, context: str, tier: str, history: list[dict]) -> str:
+    """
+    Llamada al LLM con el contexto construido por la cascada.
+    Ajusta el system prompt y la longitud del contexto al tier del modelo.
+    """
+    client = LLMClient()
+
+    if context:
+        system = (
+            "Eres un asistente técnico experto. Responde basándote EXCLUSIVAMENTE en el "
+            "contexto proporcionado. Cita la fuente cuando sea relevante. "
+            "Si la respuesta no está en el contexto, dilo explícitamente."
+        )
+        # Para modelos small: prompt más corto y directivo
+        if tier == "small":
+            prompt = f"Contexto:\n{context}\n\nPregunta: {question}\nRespuesta:"
+        else:
+            history_text = "\n".join(f"{m['role']}: {m['content']}" for m in (history or [])[-4:])
+            prompt = f"{history_text}\n\nContexto:\n{context}\n\nPregunta: {question}"
+    else:
+        system = (
+            "Eres un asistente técnico. No tienes información específica sobre esta pregunta. "
+            "Responde desde tu conocimiento general e indica que no tienes documentación de referencia."
+        )
+        prompt = question
+
+    return client.generate(
+        prompt=prompt,
+        system=system,
+        provider=DEFAULT_PROVIDER,
+        model=SYNTHESIS_MODEL,
+    )
+
+
+async def _resolve_search_space_int(search_space_id_str: str, db: AsyncSession) -> int | None:
+    """Resuelve el UUID string de search_space a su ID entero para el retriever."""
+    from sqlalchemy import select
+    from app.db import SearchSpace
+    try:
+        result = await db.execute(
+            select(SearchSpace.id).where(SearchSpace.uuid == search_space_id_str)
+        )
+        return result.scalar_one_or_none()
+    except Exception:
+        return None
+
+
+async def _rewrite_query_for_web(pregunta: str) -> str:
+    """
+    Convierte una pregunta en lenguaje natural en keywords optimizadas para SearXNG.
+    Del módulo CRAG F8: migrado como utilidad de L2.c.
+
+    Ejemplos:
+        '¿Por qué mi pipeline falla con Heading 4 en docx?' → 'docx heading4 pipeline fail extraction'
+        '¿Cómo conectar Qdrant con Python?' → 'Qdrant Python client connection'
+
+    Fallback: si el LLM falla, usa los primeros 6 tokens de la pregunta original.
+    """
+    _REWRITE_PROMPT = (
+        "Convierte la siguiente pregunta en 4-6 palabras clave para buscar en Google. "
+        "Devuelve SOLO las palabras clave separadas por espacios, sin explicación ni puntuación.\n\n"
+        f"Pregunta: {pregunta.strip()}"
+    )
+    try:
+        client = LLMClient()
+        raw = client.generate(
+            prompt=_REWRITE_PROMPT,
+            system="Optimizador de queries. Responde solo con palabras clave.",
+            provider=DEFAULT_PROVIDER,
+            model=SYNTHESIS_MODEL,
+        )
+        keywords = raw.strip().replace("\n", " ")
+        # Sanear: eliminar signos de puntuación y truncar a 80 chars
+        keywords = " ".join(keywords.split())[:80]
+        return keywords if keywords else " ".join(pregunta.split()[:6])
+    except Exception as exc:
+        logger.warning("[QueryRewrite] LLM falló: %s → usando truncado de pregunta", exc)
+        return " ".join(pregunta.split()[:6])
 ```
 
 ---
 
-## F4.3 — Registrar las rutas Brain en SurfSense (Día 3)
+## F4.3 — Variables de entorno para la cascada (Día 3)
+
+```bash
+# .env.dev — configuración de la cascada por entorno
+
+# ── Cascada de retrieval ──────────────────────────────────────
+BRAIN_BM25_ENABLED=true          # Activar BM25 PostgreSQL como L2.b
+BRAIN_WEB_ENABLED=true           # Activar SearXNG como L2.c
+BRAIN_L0_ENABLED=true            # Permitir L0 como último recurso
+BRAIN_WEB_MAX_RESULTS=5          # Limitar resultados web (importante para 3B)
+
+# ── Router Qdrant ─────────────────────────────────────────────
+ROUTER_L1_HIGH_SCORE=0.75        # Score mínimo para considerar L1 "completo"
+ROUTER_L1_MIN_SCORE=0.60         # Score mínimo para activar L2 semántico
+RERANKING_ENABLED=true           # Cross-encoder en L2 (desactivar si GPU no disponible)
+RERANKING_MODEL=cross-encoder/ms-marco-MiniLM-L-6-v2
+L2_CANDIDATE_MULTIPLIER=2        # Candidatos L2 = top_k × este factor
+
+# ── CRAG — Agente Evaluador (desactivado por defecto) ─────────
+# Activar SOLO cuando el proveedor LLM sea Claude o GPT-4 (modelos API).
+# Con modelos Ollama locales añade 10-20 segundos de latencia por consulta.
+#
+CRAG_EVALUATOR_ENABLED=false     # false=desactivado (local) | true=activo (Claude/GPT)
+CRAG_EVALUATOR_MODEL=qwen2.5-coder:3b   # modelo rápido para evaluación (si se activa)
+CRAG_REWRITER_MODEL=qwen2.5-coder:3b   # modelo para query rewriting web (siempre activo)
+CRAG_MAX_EVAL_CHUNKS=3           # chunks a evaluar máximo (cuando CRAG activo)
+CRAG_EVAL_TIMEOUT=15             # timeout evaluador en segundos
+
+# ── Recomendación por modelo ──────────────────────────────────
+# Para qwen2.5-coder:3b (3B local):
+#   BRAIN_BM25_ENABLED=true
+#   BRAIN_WEB_ENABLED=true
+#   BRAIN_L0_ENABLED=false   ← forzar que siempre haya contexto
+#   BRAIN_WEB_MAX_RESULTS=3  ← 3 snippets caben en 6K tokens
+#   RERANKING_ENABLED=false  ← sin GPU, reranking añade latencia sin ganancia
+#   CRAG_EVALUATOR_ENABLED=false
+
+# Para qwen2.5-coder:7b (7B local — modelo recomendado):
+#   BRAIN_BM25_ENABLED=true
+#   BRAIN_WEB_ENABLED=true
+#   BRAIN_L0_ENABLED=true
+#   BRAIN_WEB_MAX_RESULTS=5
+#   RERANKING_ENABLED=true   ← con 28K context, reranking mejora calidad
+#   CRAG_EVALUATOR_ENABLED=false
+
+# Para Claude / GPT-4 (modelos API):
+#   BRAIN_L0_ENABLED=true    ← L0 es aceptable con modelos de 180K+ contexto
+#   BRAIN_WEB_MAX_RESULTS=10
+#   RERANKING_ENABLED=true
+#   CRAG_EVALUATOR_ENABLED=true   ← activar evaluador — latencia ~200ms, no 5s
+#   CRAG_EVALUATOR_MODEL=claude-3-haiku-20240307  ← modelo rápido de evaluación
+```
+
+---
+
+## F4.4 — Registrar el router en `app.py` (Día 3)
+
+**Fichero:** `surfsense_backend/app/app.py` — añadir junto a los demás `include_router`
 
 ```python
-# surfsense_backend/app/main.py — añadir:
+# En app.py, cerca de la línea donde está:
+# app.include_router(crud_router, prefix="/api/v1", tags=["crud"])
 
 from app.routes.brain_routes import router as brain_router
 app.include_router(brain_router)
+# Monta en /api/v1/brain/* (el prefijo ya está definido dentro del router)
 ```
+
+> **Nota**: el fichero de la app es `app.py`, no `main.py`. SurfSense no tiene `main.py`.
 
 ---
 
-## F4.4 — Tests del router (Día 4-5)
+## F4.5 — Tests (Día 4-5)
+
+**Fichero:** `tests/brain/test_router_f4.py`
 
 ```python
-# tests/brain/test_router_f4.py
-
 import pytest
-from unittest.mock import AsyncMock, MagicMock
-from app.brain.router import BrainRouter, _keywords_from, _rrf_fusion
+from unittest.mock import MagicMock, patch, AsyncMock
+from app.brain.router import BrainRouter
+from app.brain.collections import BRAIN, KNOWLEDGE
 
-class TestKeywordsExtraction:
-    def test_extrae_keywords_relevantes(self):
-        kws = _keywords_from("¿Cómo funciona la función refreshToken del módulo auth?")
-        assert "refreshtoken" in kws or "función" in kws
-        assert "cómo" not in kws  # stopword
 
-    def test_query_vacia(self):
-        assert _keywords_from("") == []
+class TestBrainRouterMultiTenant:
 
-class TestRRFFusion:
-    def test_merge_elimina_duplicados(self):
-        results = [
-            {"source": "doc-a", "chunk_index": 0, "score": 0.9, "text": "x"},
-            {"source": "doc-a", "chunk_index": 0, "score": 0.85, "text": "x"},
-            {"source": "doc-b", "chunk_index": 1, "score": 0.7, "text": "y"},
-        ]
-        merged = _rrf_fusion(results)
-        keys = [f"{r['source']}{r['chunk_index']}" for r in merged]
-        assert len(keys) == len(set(keys))  # sin duplicados
+    def test_constructor_acepta_search_space_id(self):
+        router = BrainRouter(search_space_id="space-ABC")
+        assert router.search_space_id == "space-ABC"
+
+    def test_search_incluye_filtro_search_space(self):
+        """_search() debe incluir FieldCondition con search_space_id."""
+        router = BrainRouter(search_space_id="space-XYZ")
+        mock_qdrant = MagicMock()
+        mock_qdrant.search.return_value = []
+        router._qdrant = mock_qdrant
+
+        with patch("app.brain.router._embed_for_collection", return_value=[0.1]*768):
+            router._search(BRAIN, "test query", top_k=4)
+
+        call_kwargs = mock_qdrant.search.call_args.kwargs
+        assert "query_filter" in call_kwargs
+        filter_obj = call_kwargs["query_filter"]
+        keys = [c.key for c in filter_obj.must]
+        assert "search_space_id" in keys
+
+    def test_dos_spaces_no_comparten_resultados(self):
+        """Búsquedas de distintos search_space_id deben usar filtros distintos."""
+        router_a = BrainRouter(search_space_id="space-A")
+        router_b = BrainRouter(search_space_id="space-B")
+        mock_qdrant = MagicMock()
+        mock_qdrant.search.return_value = []
+
+        with patch("app.brain.router._embed_for_collection", return_value=[0.1]*768):
+            router_a._qdrant = mock_qdrant
+            router_b._qdrant = mock_qdrant
+            router_a._search(BRAIN, "query", 4)
+            router_b._search(BRAIN, "query", 4)
+
+        calls = mock_qdrant.search.call_args_list
+        filter_a = calls[0].kwargs["query_filter"].must[0].match.value
+        filter_b = calls[1].kwargs["query_filter"].must[0].match.value
+        assert filter_a == "space-A"
+        assert filter_b == "space-B"
+
 
 class TestBrainRouterCascade:
 
-    @pytest.fixture
-    def mock_router(self):
-        llm = AsyncMock()
-        llm.embed_text = AsyncMock(return_value=[0.1] * 768)
-        llm.generate = AsyncMock(return_value="Respuesta de prueba")
-        qdrant = MagicMock()
-        return BrainRouter(
-            llm_client=llm, qdrant=qdrant,
-            search_space_id="test-space"
-        )
+    def test_route_sin_resultados_devuelve_fallback_needed(self):
+        """Si L1 score < L1_MIN_SCORE, fallback_needed=True en la respuesta."""
+        router = BrainRouter(search_space_id="space-test")
+        mock_qdrant = MagicMock()
+        # L1 resultados con score bajo
+        mock_point = MagicMock()
+        mock_point.score = 0.20   # por debajo de L1_MIN_SCORE=0.60
+        mock_point.payload = {"text": "poco relevante", "source": "doc"}
+        mock_qdrant.search.return_value = [mock_point]
+        router._qdrant = mock_qdrant
 
-    @pytest.mark.asyncio
-    async def test_sin_resultados_l1_va_a_l0(self, mock_router):
-        mock_router.qdrant.search = MagicMock(return_value=[])
-        result = await mock_router.query("pregunta sin contexto")
-        assert result.level == 0
-        assert result.level_label == "🤖 LLM"
+        with patch("app.brain.router._embed_for_collection", return_value=[0.1]*768):
+            result = router.route("pregunta sin contexto relevante")
 
-    @pytest.mark.asyncio
-    async def test_force_l0_bypass_todo(self, mock_router):
-        mock_router.force_l0 = True
-        result = await mock_router.query("cualquier pregunta")
-        assert result.level == 0
+        assert result["fallback_needed"] is True
 
-    @pytest.mark.asyncio
-    async def test_resultado_l1_alto_score_resuelve_en_l1(self, mock_router):
-        mock_router.qdrant.search = MagicMock(return_value=[{
-            "score": 0.9, "text": "x" * 600,
-            "source": "doc-auth", "chunk_index": 0, "metadata": {}
-        }])
-        result = await mock_router.query("función de autenticación")
-        assert result.level in [1, 2]
-        assert "doc-auth" in result.sources
+    def test_route_con_score_alto_no_necesita_fallback(self):
+        """Si L1 score ≥ L1_MIN_SCORE, fallback_needed=False."""
+        router = BrainRouter(search_space_id="space-test")
+        mock_qdrant = MagicMock()
+        mock_point = MagicMock()
+        mock_point.score = 0.85
+        mock_point.payload = {"text": "contenido muy relevante " * 20, "source": "doc"}
+        mock_qdrant.search.return_value = [mock_point]
+        router._qdrant = mock_qdrant
+
+        with patch("app.brain.router._embed_for_collection", return_value=[0.1]*768):
+            result = router.route("pregunta con contexto")
+
+        assert result.get("fallback_needed") is not True
+        assert result["level_used"] in [1, 2]
+
+
+class TestBrainRouterContextBudget:
+
+    def test_small_tier_limita_chunks(self):
+        """Tier 'small' no debe incluir más de 2 chunks en el contexto."""
+        from app.routes.brain_routes import _extract_chunks, _CHUNK_BUDGET
+        mock_results = [
+            MagicMock(payload={"text": "chunk " + str(i) * 100, "source": f"doc-{i}"})
+            for i in range(10)
+        ]
+        budget = _CHUNK_BUDGET["small"]
+        chunks = _extract_chunks(mock_results, budget=budget, max_chars=400)
+        assert len(chunks) <= 2
+
+    def test_small_tier_trunca_chars(self):
+        """Tier 'small' trunca chunks a 400 chars."""
+        from app.routes.brain_routes import _extract_chunks
+        mock_result = MagicMock(payload={"text": "x" * 1000, "source": "doc"})
+        chunks = _extract_chunks([mock_result], budget=2, max_chars=400)
+        assert len(chunks[0]["text"]) <= 400
+
+
+class TestBrainRouterHelpers:
+
+    def test_needs_level2_con_trigger_de_detalle(self):
+        router = BrainRouter()
+        assert router.needs_level2("exactamente qué comando se usa", []) is True
+
+    def test_is_code_question(self):
+        router = BrainRouter()
+        assert router.is_code_question("cómo se implementa la función load_data") is True
+        assert router.is_code_question("qué es el Data Lakehouse") is False
 ```
 
 ---
 
-## Checklist F4
+## F4.6 — Agente Evaluador CRAG (opcional — activar solo con Claude/GPT-4)
 
-- [ ] `BrainRouter` implementado con cascade L1→L2→L0
-- [ ] `_keywords_from()` y `_chunks_contain_keywords()` funcionando
-- [ ] `_is_code_query()` detecta correctamente queries técnicas
-- [ ] RRF fusion entre knowledge y code collections
-- [ ] Endpoint `POST /brain/query` registrado en FastAPI
-- [ ] Endpoints CRUD de pasaportes (`GET/DELETE /brain/{source}`)
-- [ ] `force_l0` funcional desde request y desde UI (F6)
-- [ ] Badge de nivel (`🧠 Brain`, `📚 Knowledge`, `🤖 LLM`) en respuesta
-- [ ] Tests unitarios y de integración pasando
-- [ ] La consulta existente de SurfSense (`/api/v1/chat`) sigue funcionando en paralelo
+### Por qué existe y cuándo tiene sentido
+
+El router de F4 decide relevancia por **score threshold** — es una heurística ciega. Un chunk con score 0.72 puede no contener la respuesta real a la pregunta. El evaluador CRAG añade una dimensión cualitativa: en lugar de "¿supera el umbral numérico?", pregunta "¿este texto realmente responde mi pregunta?".
+
+**El problema:** cada evaluación es una llamada LLM completa.  
+- En Claude/GPT-4 via API: ~200ms por evaluación → coste asumible  
+- En Ollama CPU local (`qwen2.5-coder:3b`): ~3-5s por evaluación → con 3 chunks = +15s de latencia
+
+**Por tanto:** `CRAG_EVALUATOR_ENABLED=false` es el default. Se activa desde Admin Brain cuando el usuario configura Claude o GPT-4 como proveedor LLM.
+
+### Posición en la cascada
+
+El evaluador se inserta **entre L2 y L2.b** — solo cuando L1+L2 devuelven resultados pero el sistema quiere validar antes de responder:
+
+```
+L2 (Qdrant) → resultados con score ≥ threshold
+                  ↓
+              CRAG_EVALUATOR_ENABLED?
+                  ├── false → responder directamente (comportamiento actual F4)
+                  └── true  → Evaluador LLM (temperature=0, JSON)
+                                   ├── es_relevante: true  → responder
+                                   └── es_relevante: false → continuar a L2.b
+```
+
+### Fichero: `surfsense_backend/app/brain/crag_evaluator.py` ← NUEVO (solo se usa si flag activo)
+
+```python
+# crag_evaluator.py — Agente Evaluador CRAG
+# Solo se instancia cuando CRAG_EVALUATOR_ENABLED=true
+# LLMClient.generate() es SYNC — no async
+
+import json
+import logging
+import os
+from dataclasses import dataclass
+
+from app.brain.llm_client import LLMClient, SYNTHESIS_MODEL, DEFAULT_PROVIDER
+
+logger = logging.getLogger(__name__)
+
+CRAG_EVALUATOR_ENABLED  = os.getenv("CRAG_EVALUATOR_ENABLED",  "false").lower() == "true"
+CRAG_EVALUATOR_MODEL    = os.getenv("CRAG_EVALUATOR_MODEL",    SYNTHESIS_MODEL)
+CRAG_MAX_EVAL_CHUNKS    = int(os.getenv("CRAG_MAX_EVAL_CHUNKS", "3"))
+
+
+@dataclass
+class EvaluationResult:
+    es_relevante: bool
+    razonamiento: str   # siempre logueado — auditoría de decisiones
+    source: str = ""
+
+
+_EVAL_SYSTEM = """Eres un evaluador experto de relevancia documental.
+Determina si el fragmento contiene información suficiente para responder la pregunta.
+
+Responde ÚNICAMENTE con JSON:
+{"razonamiento": "análisis en 1-2 frases", "es_relevante": true|false}
+
+En caso de duda: false (buscar más contexto es más seguro que responder con información incorrecta)."""
+
+_EVAL_PROMPT = """
+<pregunta_usuario>
+{pregunta}
+</pregunta_usuario>
+
+<documento_recuperado>
+{fragmento}
+</documento_recuperado>
+
+¿El documento recuperado responde la pregunta? Responde en JSON."""
+
+
+def evaluar_chunk(pregunta: str, fragmento: str, source: str = "") -> EvaluationResult:
+    """
+    Evalúa si un chunk de Qdrant responde la pregunta.
+    SYNC — compatible con LLMClient.generate().
+    Siempre retorna EvaluationResult, nunca lanza excepción.
+    """
+    client = LLMClient()
+    prompt = _EVAL_PROMPT.format(
+        pregunta=pregunta.strip(),
+        fragmento=fragmento.strip()[:3000],   # limitar context window
+    )
+    try:
+        raw = client.generate(
+            prompt=prompt,
+            system=_EVAL_SYSTEM,
+            provider=DEFAULT_PROVIDER,
+            model=CRAG_EVALUATOR_MODEL,
+        )
+        parsed = json.loads(raw)
+
+        if "es_relevante" not in parsed or "razonamiento" not in parsed:
+            raise KeyError(f"Claves JSON incorrectas: {list(parsed.keys())}")
+
+        result = EvaluationResult(
+            es_relevante=bool(parsed["es_relevante"]),
+            razonamiento=str(parsed["razonamiento"]),
+            source=source,
+        )
+        # Log auditado — visible en docker logs surfsense-backend
+        logger.info(
+            "[CRAG] source=%r es_relevante=%s razonamiento=%r",
+            source, result.es_relevante, result.razonamiento
+        )
+        return result
+
+    except json.JSONDecodeError as exc:
+        logger.warning("[CRAG] JSONDecodeError source=%r: %s → fallback False", source, exc)
+        return EvaluationResult(es_relevante=False,
+                                razonamiento=f"JSON inválido: {exc}", source=source)
+    except KeyError as exc:
+        logger.warning("[CRAG] Claves incorrectas source=%r: %s → fallback False", source, exc)
+        return EvaluationResult(es_relevante=False,
+                                razonamiento=f"Claves inválidas: {exc}", source=source)
+    except Exception as exc:
+        logger.error("[CRAG] Error inesperado source=%r: %s → fallback False", source, exc)
+        return EvaluationResult(es_relevante=False,
+                                razonamiento=f"Error: {type(exc).__name__}", source=source)
+
+
+def evaluar_chunks(pregunta: str, chunks: list[dict]) -> tuple[bool, list[EvaluationResult]]:
+    """
+    Evalúa hasta CRAG_MAX_EVAL_CHUNKS chunks en orden de score.
+    Early exit: si el primero es relevante, no evalúa el resto.
+
+    Returns:
+        (hay_relevante, evaluaciones)
+    """
+    evaluaciones = []
+    for chunk in chunks[:CRAG_MAX_EVAL_CHUNKS]:
+        result = evaluar_chunk(
+            pregunta=pregunta,
+            fragmento=chunk.get("text", ""),
+            source=chunk.get("source", ""),
+        )
+        evaluaciones.append(result)
+        if result.es_relevante:
+            return True, evaluaciones  # early exit
+    return False, evaluaciones
+```
+
+### Integración en `brain_routes.py` — bloque condicional entre L2 y L2.b
+
+```python
+# brain_routes.py — añadir estas importaciones al inicio del fichero:
+from app.brain.crag_evaluator import (
+    CRAG_EVALUATOR_ENABLED, evaluar_chunks, EvaluationResult
+)
+
+# En brain_query(), DESPUÉS del bloque L1+L2 que devuelve resultados,
+# ANTES de hacer la llamada LLM — insertar la evaluación condicional:
+
+    if not route_result.get("fallback_needed") and route_result.get("results"):
+        level  = route_result["level_used"]
+        chunks = _extract_chunks(route_result["results"], chunk_budget, chunk_max_chars)
+        sources = route_result["sources_consulted"]
+        label   = "🧠 Brain" if level == 1 else "📚 Knowledge"
+
+        # ── CRAG Evaluador (solo si está activado) ──────────────────────
+        if CRAG_EVALUATOR_ENABLED and chunks:
+            hay_relevante, evaluaciones = evaluar_chunks(req.question, chunks)
+            razonamientos = [ev.razonamiento for ev in evaluaciones]
+            logger.info("[CRAG] Evaluaciones: %s", razonamientos)
+
+            if not hay_relevante:
+                # Agente decidió que ningún chunk responde la pregunta
+                # → continuar cascada hacia L2.b
+                logger.info(
+                    "[CRAG] Ningún chunk relevante según el agente evaluador "
+                    "→ continuando a L2.b/BM25. Razonamientos: %s", razonamientos
+                )
+                # Caer directamente al bloque L2.b (no retornar aquí)
+                pass
+            else:
+                # Agente confirmó al menos un chunk relevante → responder
+                chunks_ok = [chunks[i] for i, ev in enumerate(evaluaciones) if ev.es_relevante]
+                context = _build_context(chunks_ok or chunks)
+                answer = _call_llm(req.question, context=context, tier=tier, history=req.chat_history)
+                return BrainQueryResponse(
+                    answer=answer, level_used=level, level_label=label,
+                    sources=sources, context_chunks=len(chunks_ok or chunks),
+                    model_tier=tier
+                )
+        else:
+            # Sin CRAG: comportamiento original F4 — responder directamente
+            context = _build_context(chunks)
+            answer = _call_llm(req.question, context=context, tier=tier, history=req.chat_history)
+            return BrainQueryResponse(answer=answer, level_used=level, level_label=label,
+                                       sources=sources, context_chunks=len(chunks), model_tier=tier)
+```
+
+### Control desde Admin Brain (F6.10)
+
+El toggle de activación del evaluador CRAG se expone en el tab **🤖 LLM** del Admin Brain — junto a la configuración del proveedor LLM. La regla visual:
+
+```
+Tab LLM
+├── Provider: [ollama] [claude] [openai]
+├── Modelo síntesis: qwen2.5-coder:7b
+│
+└── ── Agente Evaluador CRAG ────────────────────────────────────────
+    ├── [OFF] Activar evaluador CRAG            ← toggle
+    │         ⚠️ Solo recomendado con Claude o GPT-4.
+    │             Con Ollama local añade ~15s por consulta.
+    ├── Modelo evaluador: [qwen2.5-coder:3b ▾]  ← desplegable (solo si activo)
+    └── Chunks a evaluar: [3 ▾]                 ← 1-5 (solo si activo)
+```
+
+El toggle llama a `POST /api/v1/admin/config` con `{ "CRAG_EVALUATOR_ENABLED": true/false }`.  
+El backend escribe en el fichero `.env` en runtime (o en una tabla `brain_config` si se implementa persistencia en BD — ver F6.10).
+
+### Tests del evaluador
+
+```python
+# tests/brain/test_crag_evaluator.py
+
+import pytest
+from unittest.mock import patch, MagicMock
+from app.brain.crag_evaluator import evaluar_chunk, evaluar_chunks, EvaluationResult
+
+
+class TestCRAGEvaluador:
+
+    def test_json_valido_relevante(self):
+        """LLM devuelve JSON válido con es_relevante=true."""
+        with patch("app.brain.crag_evaluator.LLMClient") as MockLLM:
+            MockLLM.return_value.generate.return_value = \
+                '{"razonamiento": "El fragmento explica JWT directamente", "es_relevante": true}'
+            result = evaluar_chunk("¿Qué es JWT?", "JWT es un token de autenticación...")
+        assert result.es_relevante is True
+        assert "JWT" in result.razonamiento
+
+    def test_json_corrupto_fallback_false(self):
+        """JSON corrupto → EvaluationResult con es_relevante=False. Nunca excepción."""
+        with patch("app.brain.crag_evaluator.LLMClient") as MockLLM:
+            MockLLM.return_value.generate.return_value = "esto no es json {{{corrupto"
+            result = evaluar_chunk("pregunta", "fragmento")
+        assert result.es_relevante is False
+        assert "JSON" in result.razonamiento or "inválido" in result.razonamiento
+
+    def test_llm_error_fallback_false(self):
+        """Si LLM lanza excepción → False. La cascada continúa a L2.b."""
+        with patch("app.brain.crag_evaluator.LLMClient") as MockLLM:
+            MockLLM.return_value.generate.side_effect = ConnectionError("Ollama caído")
+            result = evaluar_chunk("pregunta", "fragmento")
+        assert result.es_relevante is False
+
+    def test_early_exit_primer_chunk_relevante(self):
+        """Si el primer chunk es relevante, no evalúa el resto."""
+        responses = [
+            '{"razonamiento": "Chunk 1 relevante", "es_relevante": true}',
+            '{"razonamiento": "Chunk 2 también", "es_relevante": true}',
+        ]
+        with patch("app.brain.crag_evaluator.LLMClient") as MockLLM:
+            MockLLM.return_value.generate.side_effect = responses
+            chunks = [
+                {"text": "chunk 1", "source": "doc-a"},
+                {"text": "chunk 2", "source": "doc-b"},
+            ]
+            hay, evaluaciones = evaluar_chunks("pregunta", chunks)
+        assert hay is True
+        assert len(evaluaciones) == 1   # solo evaluó el primero — early exit
+
+    def test_todos_irrelevantes_devuelve_false(self):
+        """Si todos los chunks son irrelevantes → (False, lista_completa)."""
+        with patch("app.brain.crag_evaluator.LLMClient") as MockLLM:
+            MockLLM.return_value.generate.return_value = \
+                '{"razonamiento": "No responde la pregunta", "es_relevante": false}'
+            chunks = [{"text": f"chunk {i}", "source": f"doc-{i}"} for i in range(3)]
+            hay, evaluaciones = evaluar_chunks("pregunta sin contexto", chunks)
+        assert hay is False
+        assert len(evaluaciones) == 3
+```
+
+---
+
+### F4.0 — Prerrequisitos
+- [ ] `search_space_id` ya presente en payloads Qdrant (brain, knowledge, code) — resultado de F2
+- [ ] `ChucksHybridSearchRetriever.full_text_search()` funcional con `search_space_id` int
+- [ ] `web_search_service` disponible en el contenedor backend
+
+### F4.1 — `router.py`
+- [ ] Constructor `BrainRouter(search_space_id: str = "")` — acepta multi-tenant
+- [ ] `_search()` incluye `FieldCondition(key="search_space_id")` en filter
+- [ ] `_search_filtered()` incluye `search_space_id` como condición adicional
+- [ ] `_build_response()` incluye campo `fallback_needed: bool`
+- [ ] `route()` devuelve `fallback_needed=True` cuando L1+L2 no tienen resultados relevantes
+- [ ] Tests `TestBrainRouterMultiTenant` pasando
+
+### F4.2 — `brain_routes.py`
+- [ ] `POST /api/v1/brain/query` implementado con cascada L1→L2→BM25→Web→L0
+- [ ] `BrainQueryResponse` incluye `level_used` (0-4), `level_label`, `model_tier`
+- [ ] `_CHUNK_BUDGET` y `_CHUNK_MAX_CHARS` por tier aplicados correctamente
+- [ ] `BRAIN_L0_ENABLED=false` devuelve 404 en lugar de LLM libre
+- [ ] BM25 usa `ChucksHybridSearchRetriever` — no reinventa la rueda
+- [ ] Web usa `web_search_service` — no reinventa la rueda
+- [ ] `GET /api/v1/brain/passport/{source}` — `writer.read()` devuelve `None` (no excepción)
+- [ ] `DELETE /api/v1/brain/document/{source}` requiere `search_space_id` como query param
+
+### F4.3 — Variables de entorno
+- [ ] `BRAIN_BM25_ENABLED`, `BRAIN_WEB_ENABLED`, `BRAIN_L0_ENABLED` en `.env.dev`
+- [ ] `BRAIN_WEB_MAX_RESULTS=3` para modelos 3B, `=5` para 7B, `=10` para Claude
+- [ ] `CRAG_EVALUATOR_ENABLED=false` por defecto en `.env.dev` y `.env.example`
+- [ ] Documentar configuración recomendada por tier en `.env.example` — incluyendo CRAG para Claude
+
+### F4.4 — Registro en `app.py`
+- [ ] `from app.routes.brain_routes import router as brain_router`
+- [ ] `app.include_router(brain_router)` añadido en `app.py` (no `main.py`)
+- [ ] Ruta accesible: `curl /api/v1/brain/query` responde 422 (schema validation) — no 404
+
+### F4.5 — Tests
+- [ ] `TestBrainRouterMultiTenant` — filtro `search_space_id` verificado en llamadas Qdrant
+- [ ] `TestBrainRouterCascade` — `fallback_needed` correcto según score L1
+- [ ] `TestBrainRouterContextBudget` — tier small ≤2 chunks, ≤400 chars
+- [ ] Test de integración: `BRAIN_BM25_ENABLED=false, BRAIN_WEB_ENABLED=false` → L0 directo
+- [ ] `_rewrite_query_for_web()` — fallback a truncado si LLM falla
+
+### F4.6 — Agente Evaluador CRAG (parametrizable)
+- [ ] `crag_evaluator.py` creado — `evaluar_chunk()` y `evaluar_chunks()` SYNC
+- [ ] `CRAG_EVALUATOR_ENABLED=false` en `.env.dev` y `.env.example`
+- [ ] Integración en `brain_routes.py` — bloque condicional entre L2 y L2.b
+- [ ] Si `CRAG_EVALUATOR_ENABLED=false` → comportamiento idéntico al F4 sin CRAG
+- [ ] Si `CRAG_EVALUATOR_ENABLED=true` y chunks irrelevantes → continúa a L2.b
+- [ ] Log auditado de `razonamiento` en cada decisión del evaluador
+- [ ] Toggle en Admin Brain (F6.10) tab LLM con warning visual sobre latencia local
+- [ ] Tests `TestCRAGEvaluador` pasando: JSON corrupto → False, LLM error → False, early exit
+
+### Criterio de aceptación global F4
+- [ ] Query sobre documento indexado → nivel 1 ó 2, `context_chunks ≥ 1`
+- [ ] Query sin documentos relevantes + `BRAIN_BM25_ENABLED=true` → nivel 3 (BM25)
+- [ ] Query completamente fuera de corpus + SearXNG activo → nivel 4 (Web)
+- [ ] La query web usa `_rewrite_query_for_web()` — no la pregunta original cruda
+- [ ] `BRAIN_L0_ENABLED=false` + sin contexto → 404, no alucinación
+- [ ] Con `qwen2.5-coder:3b`: chunks ≤2, chars ≤400 — no timeout por contexto largo
+- [ ] `CRAG_EVALUATOR_ENABLED=false` → cascada igual que antes, sin diferencia de latencia
+- [ ] `CRAG_EVALUATOR_ENABLED=true` + chunk irrelevante → cascada continúa a L2.b
+- [ ] La ruta original de SurfSense (`/api/v1/chat`) sigue funcionando sin cambios
 
 ---
 
