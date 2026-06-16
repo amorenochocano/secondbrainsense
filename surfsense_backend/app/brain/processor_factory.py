@@ -78,6 +78,9 @@ class DocumentProcessor:
         # get_spec() es el equivalente real de TYPE_SPECS.get() del documento
         ext_key = self.extension.lstrip(".")
         self.type_spec = _get_spec(ext_key) or {}
+        # max_chars por tipo desde preprocessing/__init__.py
+        from app.brain.prompts.preprocessing import _MAX_CHARS, _DEFAULT_MAX_CHARS
+        self.max_chars: int = _MAX_CHARS.get(ext_key, _DEFAULT_MAX_CHARS)
 
     def extract(self, file_path: str, search_space_id: int = 0) -> list[dict]:
         """
@@ -140,7 +143,7 @@ class DocumentProcessor:
             return "\n\n".join(b.get("content", "") for b in blocks if b.get("content"))
 
         raw_text = "\n\n".join(b.get("content", "") for b in blocks if b.get("content"))
-        processed = self.preprocessor_module.preprocess(raw_text)
+        processed = self.preprocessor_module.preprocess(raw_text, self.max_chars)
         logger.info("[processor] Fase 3 completada: %d chars con marcas semánticas", len(processed))
         return processed
 

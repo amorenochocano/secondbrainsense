@@ -22,6 +22,20 @@ x-backend-build: &backend-build
   args:
     EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
 
+x-tests-build: &tests-build
+  # Usa el stage unit-tests del Dockerfile: hereda de deps (no de models).
+  # Evita descargar EasyOCR, Docling y modelos de embedding (~2GB).
+  # Solo instala dependencias Python — ideal para unit tests con mocks.
+  # Para tests E2E que necesiten modelos, cambiar target a e2e.
+  context: ../surfsense_backend
+  dockerfile: Dockerfile
+  target: unit-tests
+  additional_contexts:
+    repo_root: ..
+    tests-source: ../surfsense_backend/tests
+  args:
+    EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+
 x-frontend-build: &frontend-build
   context: ../surfsense_web
   dockerfile: Dockerfile
@@ -157,7 +171,7 @@ services:
       - CURL_CA_BUNDLE=/certs/corp-root.crt
       - NODE_EXTRA_CA_CERTS=/certs/corp-root.crt
       - PGSSLMODE=disable
-      # Daytona Sandbox – uncomment and set credentials to enable cloud code execution
+      # Daytona Sandbox - uncomment and set credentials to enable cloud code execution
       # - DAYTONA_SANDBOX_ENABLED=TRUE
       # - DAYTONA_API_KEY=${DAYTONA_API_KEY:-}
       # - DAYTONA_API_URL=${DAYTONA_API_URL:-https://app.daytona.io/api}
@@ -308,7 +322,7 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
     environment:
-      # Deshabilita telemetría a telemetry.qdrant.io (falla con Netskope)
+      # Deshabilita telemetria a telemetry.qdrant.io (falla con Netskope)
       QDRANT__TELEMETRY_DISABLED: "true"
     restart: unless-stopped
     healthcheck:
@@ -339,6 +353,89 @@ services:
         condition: service_healthy
       zero-cache:
         condition: service_healthy
+
+  # ===========================================================================
+  # Servicio de tests — perfil 'tests', no arranca con 'up' normal
+  # ===========================================================================
+  # Analisis de necesidades por fase:
+  #   F1.6 test_pipeline_f1.py  — unit  — solo mocks, sin DB ni Qdrant real
+  #   F2.6 test_qdrant_f2.py    — unit  — mock Qdrant client
+  #   F4.5 test_router_f4.py    — unit  — mock LLM + mock Qdrant
+  #   F4.5 test_crag_evaluator  — unit  — mock LLM
+  #   F7.7 test_brain_e2e.py    — e2e   — stack completo + httpx
+  #
+  # Dependencias instaladas en cada run (no contaminan imagen de produccion):
+  #   pytest>=9.0.2       — runner principal
+  #   pytest-asyncio      — tests async (F3, F4)
+  #   pytest-mock         — fixtures de mock (F2, F4)
+  #   pytest-cov          — cobertura >80% (checklist F1.6)
+  #   httpx               — cliente HTTP para tests E2E F7.7
+  #
+  # Uso rapido:
+  #   # Unit tests F1 (no necesita stack, solo db+qdrant healthy del perfil tests):
+  #   docker compose -f docker/docker-compose.dev.yml --profile tests run --rm tests \
+  #     pytest tests/brain/test_pipeline_f1.py -v
+  #
+  #   # Con cobertura:
+  #   docker compose -f docker/docker-compose.dev.yml --profile tests run --rm tests \
+  #     pytest tests/brain/ -v --cov=app/brain --cov-report=term-missing
+  #
+  #   # Suite completa con marcadores:
+  #   docker compose -f docker/docker-compose.dev.yml --profile tests run --rm tests \
+  #     pytest tests/ -v -m unit
+  #
+  #   # Tests E2E F7.7 (requiere backend corriendo en host:8929):
+  #   docker compose -f docker/docker-compose.dev.yml --profile tests run --rm tests \
+  #     pytest tests/integration/test_brain_e2e.py -v
+  # ===========================================================================
+  tests:
+    container_name: sbs-brain-tests
+    build: *tests-build
+    profiles:
+      - tests
+    volumes:
+      # Montar codigo en vivo — cambios visibles sin reconstruir imagen
+      - ../surfsense_backend/app:/app/app
+      - ../surfsense_backend/tests:/app/tests
+      - ../netskope-ca-bundle.crt:/certs/corp-root.crt:ro
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql+asyncpg://${DB_USER:-surfsense}:${DB_PASSWORD:-surfsense}@${DB_HOST:-db}:${DB_PORT:-5432}/${DB_NAME:-surfsense}?ssl=disable}
+      - PYTHONPATH=/app
+      - SSL_CERT_FILE=/certs/corp-root.crt
+      - REQUESTS_CA_BUNDLE=/certs/corp-root.crt
+      - CURL_CA_BUNDLE=/certs/corp-root.crt
+      - PGSSLMODE=disable
+      # Qdrant — tests de integracion F2-F4
+      - QDRANT_HOST=${QDRANT_HOST:-qdrant}
+      - QDRANT_PORT=${QDRANT_PORT:-6333}
+      # Redis — tests futuros de Celery
+      - REDIS_APP_URL=${REDIS_URL:-redis://redis:6379/0}
+      # Sin tracing en tests
+      - LANGCHAIN_TRACING_V2=false
+      - LANGSMITH_TRACING=false
+    depends_on:
+      db:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    # Instalar deps dev en cada run y ejecutar pytest.
+    # El script instala pytest y luego lo ejecuta con los argumentos pasados.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        pip install --quiet \
+          "pytest>=9.0.2" \
+          "pytest-asyncio>=1.3.0" \
+          "pytest-mock>=3.14" \
+          "pytest-cov>=6.0.0" \
+          "httpx>=0.28.1" &&
+        python -m pytest tests/brain/ -v
+    restart: "no"
 
 volumes:
   postgres_data:

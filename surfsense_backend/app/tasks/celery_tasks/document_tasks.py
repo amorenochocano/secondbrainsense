@@ -583,8 +583,16 @@ def process_file_upload_task(
 async def _process_file_upload(
     file_path: str, filename: str, search_space_id: int, user_id: str
 ):
-    """Process file upload with new session."""
+    """Process file upload with new session.
+
+    Bifurca entre el pipeline Brain de tres fases (cuando la extensión
+    tiene soporte) y el pipeline genérico de SurfSense como fallback.
+    Usa TaskLoggingService para log persistente visible en la UI.
+    """
+    from app.brain.processor_factory import DocumentProcessorFactory
     from app.tasks.document_processors.file_processors import process_file_in_background
+    from app.utils.document_converters import process_document_content
+    import app.brain as brain_module
 
     logger.info(f"[_process_file_upload] Starting async processing for: {filename}")
 
@@ -633,16 +641,85 @@ async def _process_file_upload(
         )
 
         try:
-            result = await process_file_in_background(
-                file_path,
-                filename,
-                search_space_id,
-                user_id,
-                session,
-                task_logger,
-                log_entry,
-                notification=notification,
-            )
+            # ── Bifurcación Brain vs SurfSense genérico ────────────────────────
+            # Si la extensión tiene soporte Brain usamos el pipeline de 3 fases.
+            # Si no, fallback al pipeline genérico de SurfSense (EtlPipelineService).
+            if DocumentProcessorFactory.is_supported(filename):
+                await task_logger.log_task_progress(
+                    log_entry,
+                    f"[brain_pipeline] Procesando con pipeline Brain 3 fases: {filename}",
+                    {"pipeline": "brain", "processing_stage": "brain_pipeline"},
+                )
+                await NotificationService.document_processing.notify_processing_progress(
+                    session, notification,
+                    stage="parsing",
+                    stage_message="Procesando con pipeline Brain",
+                )
+
+                with open(file_path, "rb") as f:
+                    file_content = f.read()
+
+                # Singleton BrainMetadataService (puede ser None en worker Celery)
+                meta_svc = getattr(brain_module, "_brain_metadata_service", None)
+                if meta_svc is None:
+                    logger.warning(
+                        "[_process_file_upload] BrainMetadataService no disponible "
+                        "en worker. Normalización de tags desactivada para: %s", filename
+                    )
+
+                brain_result = await process_document_content(
+                    file_content=file_content,
+                    filename=filename,
+                    search_space_id=search_space_id,
+                    meta_service=meta_svc,
+                )
+
+                await task_logger.log_task_progress(
+                    log_entry,
+                    f"[brain_pipeline] Pipeline Brain completado, guardando: {filename}",
+                    {
+                        "pipeline": "brain",
+                        "processing_stage": "saving",
+                        "blocks": brain_result["quality_meta"]["total_blocks"],
+                        "chars": len(brain_result["processed_text"]),
+                        "quality": brain_result["quality_meta"]["avg_quality_score"],
+                    },
+                )
+
+                # En F1 guardamos el processed_text como markdown en PostgreSQL.
+                # En F2/F3 se añade la vectorización en Qdrant.
+                from app.tasks.document_processors.markdown_processor import (
+                    add_received_markdown_file_document,
+                )
+                result = await add_received_markdown_file_document(
+                    session,
+                    filename,
+                    brain_result["processed_text"],
+                    search_space_id,
+                    user_id,
+                )
+
+            else:
+                # Fallback: pipeline genérico SurfSense
+                logger.info(
+                    "[_process_file_upload] Extensión sin soporte Brain, "
+                    "pipeline genérico: %s", filename
+                )
+                await task_logger.log_task_progress(
+                    log_entry,
+                    f"Procesando con pipeline genérico SurfSense: {filename}",
+                    {"pipeline": "surfsense_generic", "processing_stage": "extracting"},
+                )
+                result = await process_file_in_background(
+                    file_path,
+                    filename,
+                    search_space_id,
+                    user_id,
+                    session,
+                    task_logger,
+                    log_entry,
+                    notification=notification,
+                )
 
             # Update notification on success
             if result:

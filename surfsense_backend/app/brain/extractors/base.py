@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 try:
-    from rag_lib.layer1_universal import UniversalCleaner as _UniversalCleaner
+    from app.brain.rag_lib.layer1_universal import UniversalCleaner as _UniversalCleaner
     _CLEANER = _UniversalCleaner()
 except Exception:
     _CLEANER = None

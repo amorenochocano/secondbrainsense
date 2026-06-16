@@ -147,6 +147,18 @@ ENV MALLOC_MMAP_MAX_=65536
 # can never accidentally ship test fakes). The e2e stage receives tests/
 # through an "additional context" passed by docker-compose.e2e.yml — see
 # https://docs.docker.com/reference/compose-file/build/#additional_contexts
+FROM deps AS unit-tests
+
+# Stage ligero sin modelos — para tests unitarios con mocks.
+# Hereda de deps (no de models) para evitar descargar EasyOCR, Docling
+# y modelos de embedding (~2GB innecesarios para unit tests).
+# Los tests E2E que necesiten modelos usan el stage e2e.
+COPY . .
+COPY --from=tests-source . ./tests/
+RUN uv pip install --system --no-cache-dir --no-deps -e .
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
 FROM models AS e2e
 
 # Same source copy as production. .dockerignore filters out tests/.

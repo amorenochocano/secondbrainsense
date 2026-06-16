@@ -1287,6 +1287,8 @@ def process_file_upload_task(
 
 Cobertura ampliada respecto al diseño original: incluye tests para `BrainMetadataService`, propagación de `search_space_id`, y el path de texto directo para conectores.
 
+dejar el fichero aqui:
+
 C:\Users\EN31380\OneDrive - Enagás, S.A\Documentos\Mis_proyectos\secondbrainsense\tests
 
 **Fichero:** `tests/brain/test_pipeline_f1.py`

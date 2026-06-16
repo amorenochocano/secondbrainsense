@@ -1,62 +1,52 @@
-# Tests
+# Tests — SecondBrainSense
 
-How the backend test suite is organized and the conventions to follow when adding tests.
+Cómo está organizada la suite de tests del backend y las convenciones a seguir al añadir nuevos tests.
 
-## Layout: type-first, module-mirrored
-
-Tests are split by **type** at the top level, and each type **mirrors the `app/` module tree** inside:
+## Estructura real actual
 
 ```
 tests/
-├── conftest.py                  # global fixtures + DATABASE_URL pinning
-├── unit/                        # pure logic: no DB, no app, no network
-│   └── notifications/
-│       ├── api/test_transform.py
-│       └── service/
-│           ├── messages/test_connector_indexing.py
-│           └── test_metadata.py
-└── integration/                 # real PostgreSQL (pgvector)
-    ├── conftest.py              # async engine, transactional db_session, db_user, ...
-    └── notifications/
-        ├── conftest.py          # module-scoped fixtures (e.g. transactional client)
-        └── test_*_handler.py
+├── conftest.py                        # fixtures globales + pinning de DATABASE_URL
+├── brain/                             # tests del pipeline Brain — CREADOS EN F1
+│   ├── __init__.py
+│   └── test_pipeline_f1.py            # 20 tests — F1 completo ✅
+├── unit/                              # tests unitarios del proyecto SurfSense base
+│   └── (tests originales SurfSense, no modificados)
+├── integration/                       # tests de integración del proyecto SurfSense base
+│   └── (tests originales SurfSense, no modificados)
+├── fixtures/                          # ficheros de ejemplo para tests Brain
+│   ├── ejemplo.py                     # Python con funciones documentadas (chunking.py de raw/)
+│   ├── sp_ejemplo.sql                 # Stored procedure SQL real (sp_load_sm_tables.sql de raw/)
+│   ├── nota.md                        # Markdown con headings H1/H2/H3
+│   ├── sample.pdf                     # PDF de ejemplo (original SurfSense)
+│   └── sample.txt                     # Texto plano (original SurfSense)
+└── utils/                             # helpers de test compartidos (original SurfSense)
 ```
 
-To find a feature's tests, look under `tests/<type>/<same path as app/>`.
+## Estado actual de tests Brain
 
-## Unit vs integration
+| Fase | Fichero | Tests | Estado |
+|------|---------|-------|--------|
+| F1.6 | `brain/test_pipeline_f1.py` | 20 | ✅ Pasando |
+| F2.6 | `brain/test_qdrant_f2.py` | — | 🔲 Por crear en F2 |
+| F4.5 | `brain/test_router_f4.py` | — | 🔲 Por crear en F4 |
+| F4.5 | `brain/test_crag_evaluator.py` | — | 🔲 Por crear en F4 |
+| F7.7 | `integration/test_brain_e2e.py` | — | 🔲 Por crear en F7 |
 
-- `@pytest.mark.unit` — pure, fast, no I/O. Test behavior through a public function's inputs/outputs.
-- `@pytest.mark.integration` — requires a real database. Run with `AUTH_TYPE=LOCAL`.
-
-Maximize logic covered by unit tests; keep integration tests for what genuinely needs the DB (persistence, SQL filters, scoping, HTTP wiring).
-
-## Principles
-
-- **Behavior, not implementation.** Assert observable outputs (returned values, persisted rows, HTTP responses), never private helpers. Tests should survive a refactor.
-- **Functional core / imperative shell.** Put pure decision logic in a side-effect-free module (e.g. `app/notifications/service/messages/`) so it is unit-testable; keep the persistence shell thin and cover it with a few integration tests.
-- **One responsibility per test file**, mirroring the slice it covers.
-- **Mock only at system boundaries** (external APIs, brokers), never internal collaborators. Prefer dependency overrides and the transactional `db_session` over mocks.
-
-## Fixtures
-
-`conftest.py` is scoped to its directory and below. Keep truly global fixtures in `tests/conftest.py`; put module-specific fixtures in that module's `conftest.py` so a DB fixture never loads for a pure unit test.
-
-For API integration tests, override `get_async_session` and `current_active_user` to ride the test's transactional `db_session` (see `tests/integration/notifications/conftest.py`): rows seeded in the test and rows read via the endpoint share one transaction that rolls back automatically.
-
-## Import mode
-
-The suite uses `--import-mode=importlib` with `pythonpath = ["."]` (see `pyproject.toml`). This lets test files share basenames across modules (e.g. many `test_api.py`) without `__init__.py` boilerplate; new test directories do not need an `__init__.py`.
-
-## Running
+## Cómo ejecutar los tests Brain
 
 ```bash
-# fast unit tests
-uv run pytest -m unit
+# Suite completa F1 — contenedor sbs-brain-tests:
+docker compose -f docker/docker-compose.dev.yml --profile tests run --rm tests
 
-# integration (needs Postgres + pgvector)
-AUTH_TYPE=LOCAL uv run pytest -m integration
-
-# a single module's tests
-uv run pytest tests/unit/notifications
+# Con cobertura:
+docker compose -f docker/docker-compose.dev.yml --profile tests run --rm tests \
+  pytest tests/brain/ -v --cov=app/brain --cov-report=term-missing
 ```
+
+## Principios
+
+- **Comportamiento, no implementación.** Verifica salidas observables, nunca helpers privados.
+- **Mock solo en fronteras del sistema** (APIs externas, LLMs, brokers), nunca colaboradores internos.
+- **Unit tests primero** — la mayor parte de la cobertura Brain es unitaria con mocks.
+- **Integration/E2E solo cuando genuinamente necesario** — DB real, Qdrant real, stack completo.
