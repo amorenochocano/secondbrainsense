@@ -89,7 +89,14 @@ class IngestRouter:
     # API pública
     # ------------------------------------------------------------------
 
-    def route(self, md_content: str, blocks: list[dict], source: str, ingest_metadata: dict = None) -> dict:
+    def route(
+        self,
+        md_content: str,
+        blocks: list[dict],
+        source: str,
+        search_space_id: str,           # NUEVO F2 — requerido para multi-tenancy
+        ingest_metadata: dict = None,
+    ) -> dict:
         """
         Distribuye el contenido a las colecciones según el frontmatter.
 
@@ -97,6 +104,8 @@ class IngestRouter:
             md_content:      contenido completo del .md generado por el synthesizer.
             blocks:          lista de bloques del extractor.
             source:          nombre del fichero original (ej: informe.pdf)
+            search_space_id: ID del search space (F2) — se propaga a todos los
+                             payloads Qdrant para garantizar aislamiento multi-tenant.
             ingest_metadata: dict opcional con trazabilidad de ingesta:
                              {ingest_origin, ingest_date, ingest_time, ingest_path}
 
@@ -164,7 +173,10 @@ class IngestRouter:
             _source_format = os.path.splitext(canonical_source)[-1].lstrip(".").lower()
 
         # 1. BRAIN — siempre
-        results[BRAIN] = self._ingest_brain(md_content, canonical_source, meta, ingest_metadata)
+        results[BRAIN] = self._ingest_brain(
+            md_content, canonical_source, meta, ingest_metadata,
+            search_space_id=search_space_id,
+        )
 
         # 2. KNOWLEDGE — si está en scope
         # Para tipos doc-rich (no md): los bloques originales del extractor son la fuente
@@ -181,7 +193,10 @@ class IngestRouter:
                     canonical_source,
                     len(text_blocks),
                 )
-                results[KNOWLEDGE] = self._ingest_knowledge_raw(text_blocks, canonical_source, meta, ingest_metadata)
+                results[KNOWLEDGE] = self._ingest_knowledge_raw(
+                    text_blocks, canonical_source, meta, ingest_metadata,
+                    search_space_id=search_space_id,
+                )
             elif _source_format in _DOC_RICH_FORMATS and _source_format != "md":
                 # Defer to Step 4 — bloques originales del extractor son mejores
                 log.info(
@@ -200,7 +215,10 @@ class IngestRouter:
                     canonical_source,
                     len(extract),
                 )
-                results[KNOWLEDGE] = self._ingest_knowledge_extract(extract, canonical_source, meta, ingest_metadata)
+                results[KNOWLEDGE] = self._ingest_knowledge_extract(
+                    extract, canonical_source, meta, ingest_metadata,
+                    search_space_id=search_space_id,
+                )
         else:
             log.info("[router] KNOWLEDGE route '%s' → omitido por scope=%s", canonical_source, scope)
 
@@ -213,7 +231,10 @@ class IngestRouter:
                     canonical_source,
                     len(code_blocks),
                 )
-                results[CODE] = self._ingest_code(code_blocks, canonical_source, meta, ingest_metadata)
+                results[CODE] = self._ingest_code(
+                    code_blocks, canonical_source, meta, ingest_metadata,
+                    search_space_id=search_space_id,
+                )
             else:
                 log.info("[router] CODE route '%s' → 0 bloques de código, no se ingesta", canonical_source)
         else:
@@ -229,7 +250,10 @@ class IngestRouter:
                 _source_format,
                 len(normalized),
             )
-            self._ingest_full_document(normalized, canonical_source, meta, ingest_metadata)
+            self._ingest_full_document(
+                normalized, canonical_source, meta, ingest_metadata,
+                search_space_id=search_space_id,
+            )
             # Ingestar bloques originales en knowledge (sustituye al Source Extract del Step 2)
             if KNOWLEDGE in scope and not raw_ingest_flag and _source_format != "md":
                 _text_blocks = [b for b in normalized if b.get("content_type") == "text"]
@@ -240,7 +264,8 @@ class IngestRouter:
                         len(_text_blocks),
                     )
                     _raw_r = self._ingest_knowledge_raw(
-                        _text_blocks, canonical_source, meta, ingest_metadata
+                        _text_blocks, canonical_source, meta, ingest_metadata,
+                        search_space_id=search_space_id,
                     )
                     results[KNOWLEDGE] = {"chunks_created": _raw_r.get("chunks_created", 0)}
                 else:
@@ -260,7 +285,15 @@ class IngestRouter:
     # Ingesta por colección
     # ------------------------------------------------------------------
 
-    def _ingest_brain(self, md_content: str, source: str, meta: dict, ingest_metadata: dict = None) -> dict:
+    def _ingest_brain(
+        self,
+        md_content: str,
+        source: str,
+        meta: dict,
+        ingest_metadata: dict = None,
+        *,
+        search_space_id: str = "",      # NUEVO F2 — propagado al payload de BrainIngestor
+    ) -> dict:
         """Delega en BrainIngestor para chunking por secciones ## del .md."""
         log.info(
             "[router] _ingest_brain START source='%s' md_chars=%d colección='%s'",
@@ -269,21 +302,30 @@ class IngestRouter:
         embed_model = type("_M", (), {"embed": staticmethod(lambda t: _embed(t, "nomic-embed-text"))})
         ingestor = BrainIngestor(self.qdrant, embed_model, collection=BRAIN)
         metadata = {
-            "kb_id":          meta.get("id", ""),
-            "type":           meta.get("type", ""),
-            "domain":         meta.get("domain", ""),
-            "subdomain":      meta.get("subdomain", ""),
-            "importance":     meta.get("importance", "medium"),
-            "confidence":     float(meta.get("confidence", 0.5)),
-            "refresh_policy": meta.get("refresh_policy", "never"),
-            "projects":       meta.get("projects") or [],
+            "kb_id":           meta.get("id", ""),
+            "type":            meta.get("type", ""),
+            "domain":          meta.get("domain", ""),
+            "subdomain":       meta.get("subdomain", ""),
+            "importance":      meta.get("importance", "medium"),
+            "confidence":      float(meta.get("confidence", 0.5)),
+            "refresh_policy":  meta.get("refresh_policy", "never"),
+            "projects":        meta.get("projects") or [],
+            "search_space_id": search_space_id,   # NUEVO F2
         }
         if ingest_metadata:
             metadata.update(ingest_metadata)
         count = ingestor.ingest_md(source, md_content, metadata)
         return {"chunks_created": count}
 
-    def _ingest_knowledge_extract(self, text: str, source: str, meta: dict, ingest_metadata: dict = None) -> dict:
+    def _ingest_knowledge_extract(
+        self,
+        text: str,
+        source: str,
+        meta: dict,
+        ingest_metadata: dict = None,
+        *,
+        search_space_id: str = "",      # NUEVO F2
+    ) -> dict:
         """Vectoriza el Source Extract (o cuerpo del .md) en knowledge."""
         log.info(
             "[router] _ingest_knowledge_extract START source='%s' chars=%d colección='%s'",
@@ -298,9 +340,18 @@ class IngestRouter:
             collection=KNOWLEDGE,
             raw_ingest=False,
             ingest_metadata=ingest_metadata,
+            search_space_id=search_space_id,
         )
 
-    def _ingest_knowledge_raw(self, text_blocks: list[dict], source: str, meta: dict, ingest_metadata: dict = None) -> dict:
+    def _ingest_knowledge_raw(
+        self,
+        text_blocks: list[dict],
+        source: str,
+        meta: dict,
+        ingest_metadata: dict = None,
+        *,
+        search_space_id: str = "",      # NUEVO F2
+    ) -> dict:
         """
         Vectoriza los bloques del extractor en knowledge respetando su estructura.
 
@@ -379,6 +430,7 @@ class IngestRouter:
                         payload={
                             "text":           chunk,
                             "source":         source,
+                            "search_space_id": search_space_id,   # NUEVO F2
                             "kb_id":          meta.get("id", ""),
                             "chunk_index":    chunk_counter,
                             "section":        section,
