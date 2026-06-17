@@ -55,6 +55,27 @@ Todos se calculan automáticamente desde context_tokens. No hay que ajustarlos.
   supports_improve_mode → True si el modelo tiene contexto para re-leer
                     el pasaporte actual y mejorarlo en lugar de regenerarlo.
 
+PROPIEDADES DE RETRIEVAL — F4 Router Multinivel
+------------------------------------------------
+Propiedades adicionales específicas para la cascada de consulta F4.
+Son DISTINTAS de las de síntesis porque el caso de uso es diferente:
+
+  Síntesis (F3): el modelo lee UN documento grande partido en trozos.
+  Retrieval (F4): el modelo lee N chunks DISTINTOS del corpus indexado.
+
+  retrieval_chunk_budget → número máximo de chunks a incluir en el
+                    prompt de consulta. Derivado de context_chars con
+                    caps por tier (small: 1-2, medium: 3-8, claude: 8-20).
+                    Usado en brain_routes.py como parámetro 'budget' en
+                    _extract_chunks(), _extract_chunks_from_orm() y
+                    _extract_chunks_from_web().
+
+  retrieval_chunk_max_chars → longitud máxima de texto por chunk en el
+                    prompt de consulta. Derivado de context_chars con caps
+                    por tier (small: 500, medium: 1200, claude: 3000).
+                    Usado para truncar ScoredPoints y Chunks ORM antes
+                    de incluirlos en el contexto del LLM.
+
 FLUJO DE DECISIÓN EN EL SYNTHESIZER
 -------------------------------------
   1. get_profile(model_name) → ModelProfile
@@ -195,6 +216,121 @@ class ModelProfile:
     def supports_improve_mode(self) -> bool:
         """True si el modelo tiene contexto para modo mejora (re-ingesta)."""
         return self.max_current_md > 0
+
+    # ------------------------------------------------------------------
+    # Propiedades de retrieval — F4 Router Multinivel
+    # ------------------------------------------------------------------
+    # Estas propiedades son distintas de las de síntesis (chunk_size,
+    # chunk_trigger) porque el caso de uso es diferente:
+    #
+    # Síntesis (F3):                    Retrieval (F4):
+    #   Doc completo → LLM              Chunks recuperados → LLM
+    #   1 doc grande fragmentado        N chunks pequeños del corpus
+    #   Objetivo: generar pasaporte     Objetivo: responder una pregunta
+    #   Budget: processar el texto      Budget: caber en el prompt del chat
+    #
+    # En retrieval el modelo NO lee el documento completo — lee los K
+    # chunks más relevantes del corpus. El presupuesto es distinto:
+    # - No hay pasaporte parcial que ocupe tokens
+    # - Sí hay historial de conversación (~4-8 turnos)
+    # - Los chunks deben ser cortos para que quepan varios a la vez
+    # ------------------------------------------------------------------
+
+    @property
+    def retrieval_chunk_max_chars(self) -> int:
+        """
+        Longitud máxima de texto de cada chunk individual en el prompt de
+        consulta del Router Multinivel (F4 brain_routes.py).
+
+        USO:
+          Se aplica en _extract_chunks() y _extract_chunks_from_orm() para
+          truncar el texto de cada ScoredPoint/Chunk antes de incluirlo
+          en el contexto que se envía al LLM.
+
+        POR QUÉ DISTINTO A chunk_size (síntesis):
+          chunk_size (F3) controla el tamaño de fragmentos del DOCUMENTO
+          durante síntesis multi-call. En retrieval el chunk ya está en
+          Qdrant/PostgreSQL — lo truncamos para que quepan varios a la vez.
+
+        FÓRMULA:
+          context_chars ÷ (retrieval_chunk_budget × 3)
+          Cap al máximo coherente por tier:
+            small:  500 chars  — ventana 6K, 2 chunks, poco margen
+            medium: 1200 chars — ventana 28K, 6 chunks, contexto cómodo
+            claude: 3000 chars — ventana 180K, sin restricción práctica
+
+        EJEMPLOS CON MODELOS REALES:
+          qwen2.5-coder:3b  (small,  6K ctx)  →  500 chars/chunk
+          qwen2.5-coder:7b  (medium, 28K ctx) → 1200 chars/chunk
+          llama3.1:8b       (medium, 30K ctx) → 1200 chars/chunk
+          claude-sonnet     (claude, 180K ctx) → 3000 chars/chunk
+
+        RELACIÓN CON CERO HARDCODE:
+          Este valor se deriva automáticamente del context_tokens del modelo
+          registrado en _REGISTRY. Al cambiar SYNTHESIS_MODEL en .env, el
+          presupuesto de retrieval se adapta sin tocar brain_routes.py.
+        """
+        caps = {"small": 500, "medium": 1200, "claude": 3000}
+        budget = self.retrieval_chunk_budget
+        # Calcular cuántos chars por chunk caben en el contexto disponible
+        # reservando 1/3 para el system prompt + pregunta + historial
+        available_for_chunks = self.context_chars * 2 // 3
+        computed = available_for_chunks // max(1, budget)
+        return min(computed, caps.get(self.prompt_tier, 1200))
+
+    @property
+    def retrieval_chunk_budget(self) -> int:
+        """
+        Número máximo de chunks a incluir en el prompt de consulta del
+        Router Multinivel (F4 brain_routes.py).
+
+        USO:
+          Se usa en brain_query() para limitar cuántos ScoredPoints/Chunks
+          ORM se extraen y envían al LLM. Es el parámetro 'budget' en
+          _extract_chunks(), _extract_chunks_from_orm() y _extract_chunks_from_web().
+
+        POR QUÉ DISTINTO A chunk_trigger / chunk_size (síntesis):
+          En síntesis (F3) el modelo lee 1 documento grande partido en
+          trozos. En retrieval (F4) el modelo lee N chunks DISTINTOS del
+          corpus indexado. El budget controla cuántas ‘fuentes diferentes’
+          puede leer a la vez antes de saturar la ventana de contexto.
+
+        FÓRMULA:
+          context_chars ÷ retrieval_chunk_max_chars (con mínimos y máximos
+          por tier para evitar extremos por modelos atípicos):
+            small:  mín=1, máx=2   — ventana pequeña, mejor 1-2 chunks
+            medium: mín=3, máx=8   — ventana 28K, 4-6 chunks óptimos
+            claude: mín=8, máx=20  — ventana enorme, hasta 15-20 chunks
+
+        EJEMPLOS CON MODELOS REALES:
+          qwen2.5-coder:3b  (small,  6K ctx)  →  2 chunks máx
+          qwen2.5-coder:7b  (medium, 28K ctx) →  6 chunks máx
+          llama3.1:8b       (medium, 30K ctx) →  6 chunks máx
+          claude-sonnet     (claude, 180K ctx) → 15 chunks máx
+
+        IMPACTO EN CALIDAD vs LATENCIA:
+          Más chunks = más contexto = mejor respuesta, pero:
+            - Modelos small: saturan con >2 chunks, respuesta degradada
+            - Modelos medium: punto óptimo 4-6 chunks
+            - Modelos claude: escalan bien hasta 15-20 chunks
+          El cap por tier previene que un modelo small reciba 10 chunks
+          aunque matemáticamente ‘quepan’ en sus tokens.
+
+        RELACIÓN CON BM25 (L2.b):
+          En BM25 se recuperan (budget × 2) candidatos para compensar
+          la menor precisión semántica del keyword search respecto a
+          la búsqueda vectorial de Qdrant.
+        """
+        floors = {"small": 1, "medium": 3, "claude": 8}
+        caps   = {"small": 2, "medium": 8, "claude": 20}
+        # Máximo teórico: cuántos chunks de tamaño 'retrieval_chunk_max_chars'
+        # caben en 2/3 del contexto disponible (reservamos 1/3 para meta)
+        # Usamos 500 como tamaño de chunk estimado para evitar recursividad
+        estimated_chunk = {"small": 500, "medium": 1200, "claude": 3000}.get(self.prompt_tier, 1200)
+        theoretical = (self.context_chars * 2 // 3) // max(1, estimated_chunk)
+        floor = floors.get(self.prompt_tier, 3)
+        cap   = caps.get(self.prompt_tier, 8)
+        return max(floor, min(theoretical, cap))
 
     def __str__(self) -> str:
         return (

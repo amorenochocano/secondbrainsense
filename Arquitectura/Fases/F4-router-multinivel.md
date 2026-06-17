@@ -805,24 +805,82 @@ class EvaluationResult:
     source: str = ""
 
 
-_EVAL_SYSTEM = """Eres un evaluador experto de relevancia documental.
-Determina si el fragmento contiene información suficiente para responder la pregunta.
+# ── Prompts optimizados para modelos Ollama ≤14B ────────────────────────────
+#
+# Diseño:
+# 1. System prompt CORTO y directivo — sin relleno expositivo
+# 2. Few-shot con 1 ejemplo positivo + 1 negativo — guía el formato exacto
+# 3. User prompt con separadores claros (no XML — evita conflicto con código)
+# 4. "razonamiento" limitado a 10 palabras — evita divagación en modelos 3B
+# 5. Fragmento truncado explícitamente — el modelo sabe que puede estar incompleto
 
-Responde ÚNICAMENTE con JSON:
-{"razonamiento": "análisis en 1-2 frases", "es_relevante": true|false}
+_EVAL_SYSTEM = """Evalúa si el FRAGMENTO responde la PREGUNTA.
+Responde SOLO con JSON. Sin texto antes ni después.
 
-En caso de duda: false (buscar más contexto es más seguro que responder con información incorrecta)."""
+Ejemplo respuesta correcta cuando SÍ responde:
+{"es_relevante": true, "razonamiento": "Explica directamente el proceso de autenticación JWT"}
 
-_EVAL_PROMPT = """
-<pregunta_usuario>
-{pregunta}
-</pregunta_usuario>
+Ejemplo respuesta correcta cuando NO responde:
+{"es_relevante": false, "razonamiento": "Habla de otro tema, no menciona la pregunta"}
 
-<documento_recuperado>
+Reglas:
+- "razonamiento": máximo 10 palabras
+- En duda: false"""
+
+_EVAL_PROMPT = """PREGUNTA: {pregunta}
+
+FRAGMENTO (puede estar truncado):
+---
 {fragmento}
-</documento_recuperado>
+---
 
-¿El documento recuperado responde la pregunta? Responde en JSON."""
+¿El fragmento responde la pregunta? JSON:"""
+
+# ── Regex fallback para rescatar respuesta de modelos que envuelven JSON ─────
+# Modelos pequeños frecuentemente emiten: ```json\n{...}\n``` o texto + JSON + texto.
+# Este regex extrae el primer objeto JSON válido de la respuesta.
+import re
+_JSON_EXTRACT_RE = re.compile(r'\{[^{}]*"es_relevante"\s*:\s*(true|false)[^{}]*\}', re.IGNORECASE)
+_RELEVANTE_FALLBACK_RE = re.compile(r'"?es_relevante"?\s*:\s*(true|false)', re.IGNORECASE)
+
+
+def _parse_eval_response(raw: str) -> dict:
+    """
+    Parsea la respuesta del evaluador con 3 niveles de tolerancia:
+    1. json.loads() directo — caso ideal
+    2. Regex: extraer primer {...} con "es_relevante" — caso modelo envuelve en markdown
+    3. Regex mínimo: buscar solo el valor de es_relevante — último recurso
+
+    Lanza ValueError si ninguno funciona.
+    """
+    # Nivel 1: JSON directo
+    cleaned = raw.strip()
+    # Quitar markdown fences si el modelo las añade (```json ... ```)
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r'^```\w*\s*', '', cleaned)
+        cleaned = re.sub(r'\s*```\s*$', '', cleaned)
+    try:
+        parsed = json.loads(cleaned)
+        if "es_relevante" in parsed:
+            return parsed
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # Nivel 2: extraer primer JSON object con es_relevante
+    match = _JSON_EXTRACT_RE.search(raw)
+    if match:
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            pass
+
+    # Nivel 3: solo extraer el booleano — construir dict mínimo
+    match = _RELEVANTE_FALLBACK_RE.search(raw)
+    if match:
+        value = match.group(1).lower() == "true"
+        return {"es_relevante": value, "razonamiento": "(extraído por regex fallback)"}
+
+    raise ValueError(f"No se pudo extraer es_relevante de: {raw[:200]}")
 
 
 def evaluar_chunk(pregunta: str, fragmento: str, source: str = "") -> EvaluationResult:
@@ -830,11 +888,16 @@ def evaluar_chunk(pregunta: str, fragmento: str, source: str = "") -> Evaluation
     Evalúa si un chunk de Qdrant responde la pregunta.
     SYNC — compatible con LLMClient.generate().
     Siempre retorna EvaluationResult, nunca lanza excepción.
+
+    Parsing robusto: tolera JSON envuelto en markdown fences, texto extra,
+    y respuestas parciales de modelos Ollama ≤7B.
     """
     client = LLMClient()
+    # Truncar fragmento y escapar --- para evitar conflicto con separador del prompt
+    fragmento_safe = fragmento.strip()[:2000].replace("---", "—-—")
     prompt = _EVAL_PROMPT.format(
-        pregunta=pregunta.strip(),
-        fragmento=fragmento.strip()[:3000],   # limitar context window
+        pregunta=pregunta.strip()[:500],      # pregunta también acotada
+        fragmento=fragmento_safe,
     )
     try:
         raw = client.generate(
@@ -843,27 +906,24 @@ def evaluar_chunk(pregunta: str, fragmento: str, source: str = "") -> Evaluation
             provider=DEFAULT_PROVIDER,
             model=CRAG_EVALUATOR_MODEL,
         )
-        parsed = json.loads(raw)
-
-        if "es_relevante" not in parsed or "razonamiento" not in parsed:
-            raise KeyError(f"Claves JSON incorrectas: {list(parsed.keys())}")
+        parsed = _parse_eval_response(raw)
 
         result = EvaluationResult(
             es_relevante=bool(parsed["es_relevante"]),
-            razonamiento=str(parsed["razonamiento"]),
+            razonamiento=str(parsed.get("razonamiento", "sin razonamiento"))[:200],
             source=source,
         )
-        # Log auditado — visible en docker logs surfsense-backend
         logger.info(
-            "[CRAG] source=%r es_relevante=%s razonamiento=%r",
-            source, result.es_relevante, result.razonamiento
+            "[CRAG] source=%r es_relevante=%s razonamiento=%r raw_len=%d",
+            source, result.es_relevante, result.razonamiento, len(raw),
         )
         return result
 
-    except json.JSONDecodeError as exc:
-        logger.warning("[CRAG] JSONDecodeError source=%r: %s → fallback False", source, exc)
+    except ValueError as exc:
+        # _parse_eval_response no pudo extraer nada → fallback seguro
+        logger.warning("[CRAG] Parse fallido source=%r: %s → fallback False", source, exc)
         return EvaluationResult(es_relevante=False,
-                                razonamiento=f"JSON inválido: {exc}", source=source)
+                                razonamiento=f"Parse fallido: {exc}", source=source)
     except KeyError as exc:
         logger.warning("[CRAG] Claves incorrectas source=%r: %s → fallback False", source, exc)
         return EvaluationResult(es_relevante=False,
@@ -972,7 +1032,49 @@ El backend escribe en el fichero `.env` en runtime (o en una tabla `brain_config
 
 import pytest
 from unittest.mock import patch, MagicMock
-from app.brain.crag_evaluator import evaluar_chunk, evaluar_chunks, EvaluationResult
+from app.brain.crag_evaluator import (
+    evaluar_chunk, evaluar_chunks, _parse_eval_response, EvaluationResult,
+)
+
+
+class TestParseEvalResponse:
+    """Tests para el parser robusto de respuestas LLM."""
+
+    def test_json_limpio(self):
+        """Caso ideal: JSON puro sin basura."""
+        parsed = _parse_eval_response('{"es_relevante": true, "razonamiento": "Responde directamente"}')
+        assert parsed["es_relevante"] is True
+
+    def test_json_envuelto_en_markdown_fences(self):
+        """Modelos qwen frecuentemente envuelven JSON en ```json ... ```."""
+        raw = '```json\n{"es_relevante": false, "razonamiento": "No relacionado"}\n```'
+        parsed = _parse_eval_response(raw)
+        assert parsed["es_relevante"] is False
+
+    def test_json_con_texto_extra_antes_y_despues(self):
+        """Modelo emite texto + JSON + texto (llama3.1 hace esto)."""
+        raw = 'Aquí está mi evaluación:\n{"es_relevante": true, "razonamiento": "OK"}\nEspero que ayude.'
+        parsed = _parse_eval_response(raw)
+        assert parsed["es_relevante"] is True
+
+    def test_solo_booleano_extraible(self):
+        """Último recurso: modelo emite texto libre pero menciona es_relevante: false."""
+        raw = 'El fragmento no es relevante. es_relevante: false porque no contiene la respuesta.'
+        parsed = _parse_eval_response(raw)
+        assert parsed["es_relevante"] is False
+        assert "regex" in parsed["razonamiento"]
+
+    def test_basura_total_lanza_valueerror(self):
+        """Si no se puede extraer nada → ValueError (capturada por evaluar_chunk)."""
+        with pytest.raises(ValueError):
+            _parse_eval_response("completamente irrelevante sin json ni keywords")
+
+    def test_json_con_comillas_simples(self):
+        """Algunos modelos usan comillas simples — regex lo rescata."""
+        raw = "{'es_relevante': true, 'razonamiento': 'Responde'}"
+        # json.loads falla, pero regex debería encontrar es_relevante: true
+        parsed = _parse_eval_response(raw)
+        assert parsed["es_relevante"] is True
 
 
 class TestCRAGEvaluador:
@@ -981,18 +1083,26 @@ class TestCRAGEvaluador:
         """LLM devuelve JSON válido con es_relevante=true."""
         with patch("app.brain.crag_evaluator.LLMClient") as MockLLM:
             MockLLM.return_value.generate.return_value = \
-                '{"razonamiento": "El fragmento explica JWT directamente", "es_relevante": true}'
+                '{"es_relevante": true, "razonamiento": "Explica JWT directamente"}'
             result = evaluar_chunk("¿Qué es JWT?", "JWT es un token de autenticación...")
         assert result.es_relevante is True
         assert "JWT" in result.razonamiento
 
-    def test_json_corrupto_fallback_false(self):
-        """JSON corrupto → EvaluationResult con es_relevante=False. Nunca excepción."""
+    def test_json_envuelto_markdown_rescatado(self):
+        """JSON envuelto en ```json → rescatado por _parse_eval_response, NO fallback False."""
         with patch("app.brain.crag_evaluator.LLMClient") as MockLLM:
-            MockLLM.return_value.generate.return_value = "esto no es json {{{corrupto"
+            MockLLM.return_value.generate.return_value = \
+                '```json\n{"es_relevante": true, "razonamiento": "Relevante"}\n```'
+            result = evaluar_chunk("pregunta", "fragmento relevante")
+        assert result.es_relevante is True  # Antes: False por JSONDecodeError
+
+    def test_basura_total_fallback_false(self):
+        """Respuesta sin JSON ni keywords extraíbles → False. Nunca excepción."""
+        with patch("app.brain.crag_evaluator.LLMClient") as MockLLM:
+            MockLLM.return_value.generate.return_value = "no sé qué decir, hola mundo"
             result = evaluar_chunk("pregunta", "fragmento")
         assert result.es_relevante is False
-        assert "JSON" in result.razonamiento or "inválido" in result.razonamiento
+        assert "Parse fallido" in result.razonamiento
 
     def test_llm_error_fallback_false(self):
         """Si LLM lanza excepción → False. La cascada continúa a L2.b."""
@@ -1000,6 +1110,23 @@ class TestCRAGEvaluador:
             MockLLM.return_value.generate.side_effect = ConnectionError("Ollama caído")
             result = evaluar_chunk("pregunta", "fragmento")
         assert result.es_relevante is False
+
+    def test_razonamiento_truncado_a_200_chars(self):
+        """Razonamientos largos se truncan para no llenar logs."""
+        with patch("app.brain.crag_evaluator.LLMClient") as MockLLM:
+            MockLLM.return_value.generate.return_value = \
+                '{"es_relevante": false, "razonamiento": "' + 'x' * 500 + '"}'
+            result = evaluar_chunk("pregunta", "fragmento")
+        assert len(result.razonamiento) <= 200
+
+    def test_fragmento_con_separadores_no_rompe_prompt(self):
+        """Fragmentos con --- (separador del prompt) se escapan correctamente."""
+        with patch("app.brain.crag_evaluator.LLMClient") as MockLLM:
+            MockLLM.return_value.generate.return_value = \
+                '{"es_relevante": true, "razonamiento": "OK"}'
+            # No debe lanzar excepción ni confundir el formato
+            result = evaluar_chunk("pregunta", "texto con --- separador --- aquí")
+        assert result.es_relevante is True
 
     def test_early_exit_primer_chunk_relevante(self):
         """Si el primer chunk es relevante, no evalúa el resto."""

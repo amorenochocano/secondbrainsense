@@ -1042,6 +1042,11 @@ app.include_router(crud_router, prefix="/api/v1", tags=["crud"])
 from app.routes.admin_routes import router as admin_qdrant_router  # noqa: E402
 app.include_router(admin_qdrant_router, prefix="/api/v1")
 
+from app.routes.brain_routes import router as brain_router  # noqa: E402
+app.include_router(brain_router)
+# F4.4 — Cascada multinivel L1→L2→BM25→Web→L0. Monta en /api/v1/brain/*
+# (prefijo definido dentro del router, no aquí)
+
 
 @app.get("/health", tags=["health"])
 @limiter.exempt
