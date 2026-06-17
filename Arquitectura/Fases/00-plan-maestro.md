@@ -86,9 +86,9 @@ El codigo completo del second brain esta : C:\Users\EN31380\OneDrive - Enagás, 
 | [F5](./F5-conectores-pipeline.md) | Conectores SurfSense → Pipeline Brain | 1 semana | F4 |
 | [F6](./F6-ui-integracion.md) | UI Integrada: Next.js + Brain Views | 2 semanas | F5 |
 | [F7](./F7-hardening.md) | Hardening, Deuda Técnica y Producción | 1 semana | F6 |
-| [F8](./F8-crag-agente-evaluador.md) | CRAG: Agente Evaluador y Contingencia Web | 1 semana | F4 |
+| [F8](./F8-agentes-especializados.md) | Agentes Especializados: Synthesizer, Project Intelligence, Meeting Prep, Code Explainer | 3 semanas | F3, F4, F5 |
 
-**Duración total estimada: 10 semanas**
+**Duración total estimada: 13 semanas**
 
 ---
 
