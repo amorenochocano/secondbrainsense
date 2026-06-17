@@ -721,7 +721,7 @@ def build_partial_passport(
     # Slug y KB ID
     slug = _slugify(source)
     kb_id = f"kb_{slug}"
-    now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     # ──────────────────────────────────────────────────────────────────────────
     # TÍTULO: política unificada

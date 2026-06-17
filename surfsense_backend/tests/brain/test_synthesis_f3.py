@@ -5,6 +5,7 @@ Tests de la Fase 3 del pipeline Brain (F3).
 
 Cobertura:
   - TestImportsSintesis          : imports de todos los componentes F3 son correctos
+  - TestPrerequisitosF3          : F3.0 — masters.classify_document, BRAIN_DIR
   - TestBuildPartialPassport     : contrato de build_partial_passport() sobre fixtures reales
   - TestDocumentSynthesizerRaw   : synthesize() en modo SYNTHESIS_ENABLED=false (sin LLM)
   - TestRunBrainSynthesis        : run_brain_synthesis() síncrono con mocks de LLM/Qdrant
@@ -17,6 +18,10 @@ Adaptaciones respecto al plan F3:
   - No existe BrainLLMClient — llm_client.py se usa directamente.
   - synthesize() es síncrono — no se usa await en ningún punto.
   - run_brain_synthesis() es síncrono — se llama desde run_in_executor en el task.
+  - Los imports de IngestRouter y QdrantManager dentro de run_brain_synthesis son
+    lazy (dentro de la función), por lo que los @patch apuntan a los módulos
+    originales: app.brain.ingest_router.IngestRouter y
+    app.brain.qdrant_manager.QdrantManager — no a document_converters.
   - Los tests unitarios mockean DocumentSynthesizer.synthesize() para evitar
     llamadas reales a Ollama (que no está disponible en el contenedor de tests).
   - Los tests de integración requieren QDRANT_HOST y OLLAMA_HOST disponibles.
@@ -149,6 +154,68 @@ class TestImportsSintesis:
 
 
 # ===========================================================================
+# TestPrerequisitosF3 — F3.0: prerequisitos que passport_builder necesita
+# ===========================================================================
+
+class TestPrerequisitosF3:
+    """
+    Tests de los prerequisitos de F3 (F3.0 del checklist).
+
+    passport_builder.py importa 'from app.brain.masters import classify_document'
+    en su código fuente. Si masters.py no exporta esa función, toda la síntesis
+    falla en import antes de ejecutar una sola línea.
+    """
+
+    def test_masters_classify_document_importable(self):
+        """
+        F3.0: from app.brain.masters import classify_document no falla.
+        Prerequisito crítico — passport_builder.py lo importa en startup.
+        """
+        from app.brain.masters import classify_document
+        assert callable(classify_document), (
+            "classify_document debe ser callable en app.brain.masters"
+        )
+
+    def test_masters_classify_document_devuelve_dict(self):
+        """
+        classify_document() devuelve dict con claves domain, doc_type.
+        Verifica que el módulo está operativo, no solo importable.
+        """
+        from app.brain.masters import classify_document
+        result = classify_document(
+            tags=["python", "fastapi"],
+            keyphrases=["api", "backend"],
+            title="mi_modulo.py",
+            file_type="py",
+        )
+        assert isinstance(result, dict), "classify_document debe devolver dict"
+        assert "domain" in result, "El resultado debe tener clave 'domain'"
+        assert "doc_type" in result, "El resultado debe tener clave 'doc_type'"
+
+    def test_passport_builder_importa_masters(self):
+        """
+        passport_builder.py importa classify_document desde masters.
+        Si este import falla, build_partial_passport() no funciona.
+        """
+        import app.brain.passport_builder as pb_module
+        source = inspect.getsource(pb_module)
+        assert "classify_document" in source, (
+            "passport_builder.py debe usar classify_document de masters"
+        )
+
+    def test_brain_dir_configurado(self):
+        """
+        BRAIN_DIR está configurado en el entorno (o tiene valor por defecto).
+        BrainWriter usa este valor — sin él los pasaportes no se persisten.
+        """
+        import app.brain.writer as writer_module
+        assert hasattr(writer_module, "BRAIN_DIR"), (
+            "writer.py debe definir BRAIN_DIR desde os.getenv()"
+        )
+        assert writer_module.BRAIN_DIR, "BRAIN_DIR no puede estar vacío"
+
+
+# ===========================================================================
 # TestBuildPartialPassport — contrato de build_partial_passport()
 # ===========================================================================
 
@@ -185,12 +252,8 @@ class TestBuildPartialPassport:
         )
 
         assert isinstance(result, dict), "build_partial_passport debe devolver dict"
-        assert "passport_partial" in result, (
-            "El dict debe tener clave 'passport_partial'"
-        )
-        assert isinstance(result["passport_partial"], str), (
-            "'passport_partial' debe ser str"
-        )
+        assert "passport_partial" in result, "El dict debe tener clave 'passport_partial'"
+        assert isinstance(result["passport_partial"], str), "'passport_partial' debe ser str"
 
     def test_retorna_claves_requeridas(self):
         """El dict devuelto tiene todas las claves necesarias para el pipeline."""
@@ -415,6 +478,13 @@ class TestRunBrainSynthesis:
     """
     Tests de run_brain_synthesis() con DocumentSynthesizer, BrainWriter
     e IngestRouter mockeados. No requiere Ollama ni Qdrant.
+
+    NOTA sobre @patch:
+      run_brain_synthesis() importa IngestRouter y QdrantManager de forma
+      lazy (dentro de la función). Por tanto los @patch deben apuntar a los
+      módulos originales donde viven las clases, no a document_converters:
+        - app.brain.ingest_router.IngestRouter
+        - app.brain.qdrant_manager.QdrantManager
     """
 
     def _get_pipeline_result(self, filename: str) -> tuple:
@@ -432,8 +502,8 @@ class TestRunBrainSynthesis:
         )
         return blocks, processed, quality
 
-    @patch("app.utils.document_converters.QdrantManager")
-    @patch("app.utils.document_converters.IngestRouter")
+    @patch("app.brain.qdrant_manager.QdrantManager")
+    @patch("app.brain.ingest_router.IngestRouter")
     @patch("app.brain.synthesizer.DocumentSynthesizer.synthesize")
     def test_run_brain_synthesis_devuelve_dict_completo(
         self, mock_synth, mock_router_cls, mock_qdrant_cls
@@ -475,8 +545,8 @@ class TestRunBrainSynthesis:
                     "embedding_scope", "write_status", "llm_ok"]:
             assert key in result, f"Clave '{key}' ausente en resultado"
 
-    @patch("app.utils.document_converters.QdrantManager")
-    @patch("app.utils.document_converters.IngestRouter")
+    @patch("app.brain.qdrant_manager.QdrantManager")
+    @patch("app.brain.ingest_router.IngestRouter")
     @patch("app.brain.synthesizer.DocumentSynthesizer.synthesize")
     def test_run_brain_synthesis_escribe_md_en_disco(
         self, mock_synth, mock_router_cls, mock_qdrant_cls
@@ -520,8 +590,8 @@ class TestRunBrainSynthesis:
                 "El fichero del pasaporte debe tener extensión .md"
             )
 
-    @patch("app.utils.document_converters.QdrantManager")
-    @patch("app.utils.document_converters.IngestRouter")
+    @patch("app.brain.qdrant_manager.QdrantManager")
+    @patch("app.brain.ingest_router.IngestRouter")
     @patch("app.brain.synthesizer.DocumentSynthesizer.synthesize")
     def test_run_brain_synthesis_llm_ok_embedding_scope(
         self, mock_synth, mock_router_cls, mock_qdrant_cls
@@ -572,8 +642,8 @@ class TestRunBrainSynthesis:
         assert "brain" in result["embedding_scope"]
         assert "code" in result["embedding_scope"]
 
-    @patch("app.utils.document_converters.QdrantManager")
-    @patch("app.utils.document_converters.IngestRouter")
+    @patch("app.brain.qdrant_manager.QdrantManager")
+    @patch("app.brain.ingest_router.IngestRouter")
     @patch("app.brain.synthesizer.DocumentSynthesizer.synthesize",
            side_effect=RuntimeError("Ollama no disponible"))
     def test_run_brain_synthesis_fallback_si_llm_falla(
@@ -598,7 +668,6 @@ class TestRunBrainSynthesis:
                 "BRAIN_DIR": tmpdir,
                 "SYNTHESIS_ENABLED": "true",
             }):
-                # No debe lanzar excepción — tiene fallback
                 result = run_brain_synthesis(
                     processed_text=processed,
                     blocks=blocks,
@@ -613,8 +682,8 @@ class TestRunBrainSynthesis:
         )
 
     @patch.dict(os.environ, {"SYNTHESIS_ENABLED": "false"})
-    @patch("app.utils.document_converters.QdrantManager")
-    @patch("app.utils.document_converters.IngestRouter")
+    @patch("app.brain.qdrant_manager.QdrantManager")
+    @patch("app.brain.ingest_router.IngestRouter")
     def test_run_brain_synthesis_modo_raw_sin_llm(
         self, mock_router_cls, mock_qdrant_cls
     ):
@@ -648,8 +717,8 @@ class TestRunBrainSynthesis:
             "Con SYNTHESIS_ENABLED=false, 'brain' no debe estar en embedding_scope"
         )
 
-    @patch("app.utils.document_converters.QdrantManager")
-    @patch("app.utils.document_converters.IngestRouter")
+    @patch("app.brain.qdrant_manager.QdrantManager")
+    @patch("app.brain.ingest_router.IngestRouter")
     @patch("app.brain.synthesizer.DocumentSynthesizer.synthesize")
     def test_run_brain_synthesis_ingest_router_llamado(
         self, mock_synth, mock_router_cls, mock_qdrant_cls
@@ -688,6 +757,49 @@ class TestRunBrainSynthesis:
         assert "search_space_id" in call_kwargs, "route() debe recibir search_space_id"
         assert call_kwargs["search_space_id"] == "77", (
             "search_space_id debe pasarse como string a IngestRouter"
+        )
+
+    @patch("app.brain.qdrant_manager.QdrantManager")
+    @patch("app.brain.ingest_router.IngestRouter")
+    @patch("app.brain.synthesizer.DocumentSynthesizer.synthesize")
+    def test_ingest_router_constructor_correcto(
+        self, mock_synth, mock_router_cls, mock_qdrant_cls
+    ):
+        """
+        F3.5: IngestRouter se construye con qdrant_client=qdrant_mgr.client.
+        Verifica que el constructor usa keyword argument 'qdrant_client',
+        no posicional, y que el client viene de QdrantManager.get_instance().
+        """
+        from app.utils.document_converters import run_brain_synthesis
+
+        mock_synth.return_value = {
+            "md_content": _MOCK_PASSPORT_MD, "tags": [], "entities": [],
+            "drill_down_triggers": [], "llm_ok": True,
+        }
+        mock_qdrant_mgr = MagicMock()
+        mock_qdrant_mgr.client = MagicMock(name="qdrant_client_mock")
+        mock_qdrant_cls.get_instance.return_value = mock_qdrant_mgr
+        mock_router_cls.return_value.route.return_value = {
+            "brain": {"chunks_created": 1}, "knowledge": {"chunks_created": 1},
+            "code": {"chunks_created": 0},
+        }
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch.dict(os.environ, {"BRAIN_DIR": tmpdir}):
+                run_brain_synthesis(
+                    processed_text="texto de prueba",
+                    blocks=[{"content": "t", "content_type": "text", "metadata": {}}],
+                    filename="doc.md",
+                    search_space_id=1,
+                )
+
+        mock_router_cls.assert_called_once()
+        call_kwargs = mock_router_cls.call_args.kwargs
+        assert "qdrant_client" in call_kwargs, (
+            "IngestRouter debe construirse con keyword 'qdrant_client'"
+        )
+        assert call_kwargs["qdrant_client"] is mock_qdrant_mgr.client, (
+            "IngestRouter debe recibir qdrant_mgr.client de QdrantManager.get_instance()"
         )
 
 
@@ -815,16 +927,21 @@ class TestBrainWriter:
 
     def test_brain_dir_desde_entorno(self):
         """
-        BrainWriter() sin argumentos usa BRAIN_DIR del entorno.
-        Cero hardcode — el directorio viene de la variable de entorno.
+        BrainWriter() sin argumentos usa BRAIN_DIR del módulo writer.py.
+
+        NOTA: BRAIN_DIR se lee de os.getenv() al importar el módulo (nivel módulo),
+        no en el constructor. Por eso hay que parchear app.brain.writer.BRAIN_DIR
+        directamente — patch.dict(os.environ) no tiene efecto porque la variable
+        ya está asignada en el momento del import.
         """
         from app.brain.writer import BrainWriter
+        import app.brain.writer as writer_module
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch.dict(os.environ, {"BRAIN_DIR": tmpdir}):
+            with patch.object(writer_module, "BRAIN_DIR", tmpdir):
                 writer = BrainWriter()
                 assert writer.brain_dir == tmpdir, (
-                    f"BrainWriter debe usar BRAIN_DIR del entorno. "
+                    f"BrainWriter debe usar BRAIN_DIR del módulo. "
                     f"Esperado: {tmpdir}, obtenido: {writer.brain_dir}"
                 )
 
@@ -1178,7 +1295,6 @@ class TestSintesisIntegracion:
                     search_space_id=1,
                     quality_meta=quality,
                 )
-            # synthesize() NO debe haberse llamado con SYNTHESIS_ENABLED=false
             mock_synth.assert_not_called()
 
         assert result["passport_md"], "Pasaporte raw debe tener contenido"
