@@ -80,6 +80,22 @@ Pipeline de tres fases del Second Brain.
 """
 
 
+# Skip automático de todos los tests de integración si ollama no está instalado
+# (el contenedor de tests unit-tests no incluye ollama por diseño)
+_ollama_available = False
+try:
+    import importlib
+    importlib.import_module("ollama")
+    _ollama_available = True
+except ImportError:
+    pass
+
+requires_ollama = pytest.mark.skipif(
+    not _ollama_available,
+    reason="ollama no instalado — test requiere stack completo con Ollama"
+)
+
+
 # ===========================================================================
 # TestImportsSintesis — imports de todos los componentes F3
 # ===========================================================================
@@ -1138,6 +1154,7 @@ class TestSintesisIntegracion:
     """
 
     @pytest.mark.integration
+    @requires_ollama
     def test_pipeline_completo_py_genera_pasaporte(self, tmp_path):
         """
         Un .py pasa por el pipeline completo F1+F2+F3 y genera un .md
@@ -1179,6 +1196,7 @@ class TestSintesisIntegracion:
         )
 
     @pytest.mark.integration
+    @requires_ollama
     def test_pipeline_completo_md_genera_pasaporte(self, tmp_path):
         """Un .md pasa por el pipeline completo y genera pasaporte válido."""
         from app.brain.processor_factory import DocumentProcessorFactory
@@ -1207,6 +1225,7 @@ class TestSintesisIntegracion:
         assert result["passport_md"]
 
     @pytest.mark.integration
+    @requires_ollama
     def test_coleccion_brain_tiene_vectores_con_search_space_id(self, tmp_path):
         """
         Tras run_brain_synthesis, la colección brain en Qdrant tiene
@@ -1263,6 +1282,7 @@ class TestSintesisIntegracion:
         )
 
     @pytest.mark.integration
+    @requires_ollama
     def test_synthesis_enabled_false_no_llama_ollama(self, tmp_path):
         """
         Con SYNTHESIS_ENABLED=false, el pipeline no llama a Ollama.

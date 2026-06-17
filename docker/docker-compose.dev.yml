@@ -399,6 +399,7 @@ services:
       # Montar codigo en vivo — cambios visibles sin reconstruir imagen
       - ../surfsense_backend/app:/app/app
       - ../surfsense_backend/tests:/app/tests
+      - ../surfsense_backend/alembic:/app/alembic
       - ../netskope-ca-bundle.crt:/certs/corp-root.crt:ro
     env_file:
       - .env
@@ -435,7 +436,8 @@ services:
           "pytest-asyncio>=1.3.0" \
           "pytest-mock>=3.14" \
           "pytest-cov>=6.0.0" \
-          "httpx>=0.28.1" &&
+          "httpx>=0.28.1" \
+          "ollama>=0.4.0" &&
         python -m pytest tests/brain/ -v
     restart: "no"
 

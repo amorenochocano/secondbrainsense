@@ -67,7 +67,7 @@ class BrainIngestor:
         tags = self.extract_tags_from_frontmatter(md_content)
         fm = self._parse_frontmatter(md_content)
         log.debug("[brain_ingest] frontmatter keys=%s, tags=%s", list(fm.keys()), tags)
-        ingested_at = datetime.datetime.utcnow().isoformat()
+        ingested_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
         vectors = []
         payloads = []
         for section in sections:
