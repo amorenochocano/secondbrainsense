@@ -575,7 +575,7 @@ Equivalente de `brain_admin.py`. Panel de configuración en caliente con tabs.
 
 **Diferencia con SurfSense settings:** las settings de SurfSense configuran el LLM del chat. Admin Brain configura el pipeline de retrieval e indexación — parámetros distintos.
 
-### Tab 🤖 LLM — bloque CRAG Evaluador
+### Tab 🤖 LLM — bloque CRAG Evaluador (multi-provider)
 
 El tab LLM tiene dos bloques diferenciados:
 
@@ -592,18 +592,29 @@ Separado visualmente con `<Separator />` y encabezado de sección.
 
   [●] Activar evaluador CRAG   ← Switch (desactivado por defecto)
 
-  ⚠️  Solo recomendado con Claude o GPT-4.
-      Con Ollama local añade ~15 segundos de latencia por consulta.
-      Con modelos API (Anthropic/OpenAI) la latencia es < 300ms.
-
   ─────────────────────────────────────────────────────────────────
   [Solo visible si el switch está ON]
 
+  Provider evaluador:    [Mismo que síntesis ▾]   ← select: auto / ollama / claude / openai
   Modelo evaluador:      [qwen2.5-coder:3b ▾]   ← select dinámico (Ollama) o input libre (API)
-  Chunks a evaluar:      [  3  ] (1-5)           ← NumberInput con min/max
   Timeout (segundos):    [ 15  ] (5-30)          ← NumberInput
 
+  ── Perfil autodetectado ──────────────────────────────────────────
+  │ El backend selecciona automáticamente el perfil según el provider:
+  │
+  │  ollama  → 3 chunks máx, 1 chunk/llamada, early exit, parsing robusto
+  │  claude  → 8 chunks máx, 3 chunks/llamada batch, confianza numérica
+  │  openai  → 6 chunks máx, 3 chunks/llamada batch, JSON mode nativo
+  │
+  │ No es necesario configurar chunks/batch manualmente.
   ─────────────────────────────────────────────────────────────────
+
+  ── Latencia estimada ─────────────────────────────────────────────
+  │  ollama (CPU)  → +9-15s por consulta (3 chunks × 3-5s)
+  │  claude (API)  → +0.5-1.5s por consulta (3 batches × ~200ms)
+  │  openai (API)  → +0.6-2s por consulta (2 batches × ~300ms)
+  ─────────────────────────────────────────────────────────────────
+
   Query Rewriting (siempre activo)
   ℹ️  El rewriter de consultas web (L2.c) está siempre activado.
       Convierte la pregunta a keywords antes de buscar en SearXNG.
@@ -613,20 +624,32 @@ Separado visualmente con `<Separator />` y encabezado de sección.
 
 **Comportamiento del toggle:**
 - `OFF` (default): campos del bloque CRAG con `opacity-50 pointer-events-none` — visibles pero no editables
-- `ON`: campos activados; si el provider activo es `ollama`, mostrar un `Alert` amarillo con el warning de latencia
+- `ON`: campos activados; el warning de latencia se muestra según el provider evaluador seleccionado
 - Al guardar con `POST /api/v1/admin/config`, el frontend envía SOLO los campos modificados (PATCH semántico)
 
 **Lógica del warning contextual:**
 ```tsx
 // En el componente CRAGBlock:
-const showLatencyWarning = cragEnabled && provider === "ollama"
+const cragProvider = cragProviderOverride || provider  // "auto" usa el provider de síntesis
+const showLatencyWarning = cragEnabled && cragProvider === "ollama"
+const showCostWarning = cragEnabled && (cragProvider === "claude" || cragProvider === "openai")
 
 {showLatencyWarning && (
   <Alert variant="warning">
     <AlertTriangle className="h-4 w-4" />
     <AlertDescription>
       Con Ollama local, el evaluador CRAG añade ~15s por consulta
-      (3 llamadas LLM × 5s). Considera desactivarlo o usar Claude/GPT-4.
+      (3 llamadas LLM × 5s). Considera usar Claude o OpenAI para el evaluador.
+    </AlertDescription>
+  </Alert>
+)}
+
+{showCostWarning && (
+  <Alert variant="info">
+    <Info className="h-4 w-4" />
+    <AlertDescription>
+      El evaluador usa {cragProvider} API — latencia mínima (~1s)
+      pero con coste por llamada (~$0.003-0.005/evaluación).
     </AlertDescription>
   </Alert>
 )}
@@ -638,11 +661,18 @@ const showLatencyWarning = cragEnabled && provider === "ollama"
 - El backend lee las variables de entorno al arranque como defaults; el Admin Brain puede sobrescribirlas en runtime sin restart
 
 **Acceso rápido:** en el tab **🤖 LLM**, encima del bloque CRAG, un enlace inline:
-> 📖 _¿Cuándo usar el evaluador CRAG? → Ver documentación en [F4.6](../F4-router-multinivel.md#f46--agente-evaluador-crag-opcional--activar-solo-con-claudegpt-4)_
+> 📖 _¿Cuándo usar el evaluador CRAG? → Ver documentación backend en [F4.6 — Agente Evaluador CRAG multi-provider](./F4-router-multinivel.md#f46--agente-evaluador-crag-multi-provider-ollama--claude--openai)_
 
 **API calls:**
-- `GET /api/v1/admin/config` → configuración activa (incluye `CRAG_EVALUATOR_ENABLED`, `CRAG_EVALUATOR_MODEL`, `CRAG_MAX_EVAL_CHUNKS`, `CRAG_EVAL_TIMEOUT`, `CRAG_REWRITER_MODEL`)
-- `POST /api/v1/admin/config` → actualizar parámetros
+- `GET /api/v1/admin/config` → configuración activa (incluye `CRAG_EVALUATOR_ENABLED`, `CRAG_EVALUATOR_PROVIDER`, `CRAG_EVALUATOR_MODEL`, `CRAG_MAX_EVAL_CHUNKS`, `CRAG_EVAL_TIMEOUT`, `CRAG_REWRITER_MODEL`)
+- `POST /api/v1/admin/config` → actualizar parámetros. Ejemplo payload:
+  ```json
+  {
+    "CRAG_EVALUATOR_ENABLED": true,
+    "CRAG_EVALUATOR_PROVIDER": "claude",
+    "CRAG_EVALUATOR_MODEL": "claude-3-haiku-20240307"
+  }
+  ```
 - `GET /api/v1/health` → health check
 - `GET /api/v1/admin/ollama-models` → modelos disponibles (usados en ambos selects del bloque CRAG)
 
