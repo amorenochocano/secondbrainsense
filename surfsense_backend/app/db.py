@@ -16,7 +16,9 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Column,
+    DateTime,
     Enum as SQLAlchemyEnum,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -1476,6 +1478,36 @@ class Document(BaseModel, TimestampMixin):
         default=DocumentStatus.ready,
         server_default=text('\'{"state": "ready"}\'::jsonb'),
         index=True,
+    )
+
+    # ── Brain Pipeline — F3.4 ──────────────────────────────────────────────────
+    # Campos del pasaporte semántico. Nullable para compatibilidad con documentos
+    # existentes que no han pasado por el pipeline Brain.
+
+    # Ruta en disco del .md generado por BrainWriter (ej: /data/brain/mi-doc.md)
+    passport_path = Column(String, nullable=True)
+
+    # Timestamp de la última síntesis exitosa del pasaporte
+    passport_generated_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Promedio de quality_score de los bloques extraídos (0.0–1.0)
+    # Calculado por DocumentProcessorFactory.get_metadata_from_blocks()
+    avg_quality_score = Column(Float, nullable=True)
+
+    # True si UniversalCleaner detectó información PII en el documento
+    has_pii = Column(Boolean, nullable=True, default=False)
+
+    # Idiomas detectados en el documento (ej: ["es", "en"])
+    detected_languages = Column(ARRAY(String), nullable=True)
+
+    # Colecciones Qdrant donde se vectorizó el documento
+    # Ej: ["brain", "knowledge"] o ["brain", "knowledge", "code"]
+    # Documentos pre-F3 tienen el default legacy ["knowledge", "code"]
+    embedding_scope = Column(
+        ARRAY(String),
+        nullable=True,
+        default=["knowledge", "code"],
+        server_default=text("'{knowledge,code}'"),
     )
 
     # Relationships

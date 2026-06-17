@@ -147,6 +147,7 @@ services:
       - ../surfsense_backend/app:/app/app
       - shared_temp:/shared_tmp
       - ../netskope-ca-bundle.crt:/certs/corp-root.crt:ro
+      - brain_data:${BRAIN_DIR:-/data/brain}   # F3.3 — pasaportes .md persistentes
     env_file:
       - .env
     extra_hosts:
@@ -221,6 +222,7 @@ services:
       - ../surfsense_backend/app:/app/app
       - shared_temp:/shared_tmp
       - ../netskope-ca-bundle.crt:/certs/corp-root.crt:ro
+      - brain_data:${BRAIN_DIR:-/data/brain}   # F3.3 — mismo volumen que backend para coherencia
     env_file:
       - .env
     extra_hosts:
@@ -452,3 +454,8 @@ volumes:
     name: secondbrainsense-dev-whatsapp-sessions
   qdrant_data:
     name: secondbrainsense-dev-qdrant
+  brain_data:
+    name: secondbrainsense-dev-brain
+    # F3.3 — Volumen persistente para pasaportes .md del Second Brain.
+    # Montado en backend y celery_worker en BRAIN_DIR (/data/brain).
+    # BrainWriter escribe aquí; BrainWatcher monitoriza cambios y re-indexa en Qdrant.

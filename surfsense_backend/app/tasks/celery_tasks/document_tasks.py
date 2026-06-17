@@ -686,52 +686,82 @@ async def _process_file_upload(
                     },
                 )
 
-                # F2: vectorizar en Qdrant con IngestRouter + search_space_id
-                # QdrantManager.get_instance() devuelve el singleton inicializado
-                # en el lifespan. IngestRouter recibe su client directamente.
-                # En F3, md_content se sustituirá por el passport_md real del synthesizer.
-                # En F2 usamos processed_text como placeholder — el search_space_id
-                # en los payloads es lo crítico para desbloquear el router L2 (F4).
-                from app.brain.qdrant_manager import QdrantManager
-                from app.brain.ingest_router import IngestRouter
-                from datetime import date
-
-                qdrant_mgr = QdrantManager.get_instance()
-                ingest_router = IngestRouter(qdrant_client=qdrant_mgr.client)
+                # F3: síntesis LLM → BrainWriter → IngestRouter
+                # run_brain_synthesis es síncrono (DocumentSynthesizer e IngestRouter
+                # son bloqueantes). Se ejecuta en thread pool para no congelar el
+                # event loop durante los minutos que tarda Ollama.
+                from app.utils.document_converters import run_brain_synthesis
+                from datetime import date, datetime, timezone
 
                 await task_logger.log_task_progress(
                     log_entry,
-                    f"[brain_pipeline] Vectorizando en Qdrant: {filename}",
-                    {"pipeline": "brain", "processing_stage": "vectorizing"},
+                    f"[brain_pipeline] Sintetizando pasaporte semántico: {filename}",
+                    {"pipeline": "brain", "processing_stage": "synthesis"},
+                )
+                await NotificationService.document_processing.notify_processing_progress(
+                    session, notification,
+                    stage="indexing",
+                    stage_message="Generando pasaporte semántico",
                 )
 
-                ingest_router.route(
-                    md_content=brain_result["processed_text"],
-                    blocks=brain_result["blocks"],
-                    source=filename,
-                    search_space_id=str(search_space_id),
-                    ingest_metadata={
-                        "ingest_origin": "file_upload",
-                        "ingest_date":   date.today().isoformat(),
-                    },
+                # get_running_loop() es la forma correcta dentro de una corrutina
+                # (get_event_loop() está deprecado desde Python 3.10 en contextos async)
+                loop = asyncio.get_running_loop()
+                synth_result = await loop.run_in_executor(
+                    None,
+                    lambda: run_brain_synthesis(
+                        processed_text=brain_result["processed_text"],
+                        blocks=brain_result["blocks"],
+                        filename=filename,
+                        search_space_id=search_space_id,
+                        quality_meta=brain_result["quality_meta"],
+                        ingest_metadata={
+                            "ingest_origin": "file_upload",
+                            "ingest_date":   date.today().isoformat(),
+                            "ingest_path":   filename,
+                        },
+                    )
                 )
 
                 logger.info(
-                    "[_process_file_upload] Vectorización Qdrant completada: file=%s space=%s",
-                    filename, search_space_id,
+                    "[_process_file_upload] F3 completado: file=%s llm_ok=%s "
+                    "passport_path=%s embedding_scope=%s",
+                    filename,
+                    synth_result.get("llm_ok"),
+                    synth_result.get("passport_path"),
+                    synth_result.get("embedding_scope"),
                 )
 
-                # Guardar processed_text en PostgreSQL (fuente de verdad relacional)
+                # Guardar passport_md en PostgreSQL (fuente de verdad relacional)
+                # add_received_markdown_file_document crea o actualiza el Document
+                # con el contenido del pasaporte — luego actualizamos los campos F3.4
                 from app.tasks.document_processors.markdown_processor import (
                     add_received_markdown_file_document,
                 )
                 result = await add_received_markdown_file_document(
                     session,
                     filename,
-                    brain_result["processed_text"],
+                    synth_result.get("passport_md") or brain_result["processed_text"],
                     search_space_id,
                     user_id,
                 )
+
+                # Actualizar campos de pasaporte en el Document (F3.4)
+                if result is not None:
+                    result.passport_path         = synth_result.get("passport_path") or None
+                    result.passport_generated_at = datetime.now(timezone.utc)
+                    result.avg_quality_score     = brain_result["quality_meta"].get("avg_quality_score")
+                    result.has_pii               = bool(brain_result["quality_meta"].get("has_pii", False))
+                    result.detected_languages    = brain_result["quality_meta"].get("languages") or []
+                    result.embedding_scope       = synth_result.get("embedding_scope") or ["knowledge"]
+                    await session.commit()
+                    logger.info(
+                        "[_process_file_upload] Campos pasaporte guardados en DB: "
+                        "doc_id=%s passport_path=%s embedding_scope=%s",
+                        result.id,
+                        result.passport_path,
+                        result.embedding_scope,
+                    )
 
             else:
                 # Fallback: pipeline genérico SurfSense

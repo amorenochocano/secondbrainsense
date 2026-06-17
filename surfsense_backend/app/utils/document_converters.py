@@ -532,3 +532,246 @@ async def process_document_from_text(
         "filename":        filename,
         "search_space_id": search_space_id,
     }
+
+
+# ===========================================================================
+# Brain Pipeline — F3.5
+# ===========================================================================
+# run_brain_synthesis() es el punto de integración F3: recibe el resultado
+# de process_document_content() (F1+F2) y ejecuta síntesis LLM + BrainWriter
+# + IngestRouter de forma síncrona (Celery worker no es async).
+#
+# Flujo:
+#   process_document_content() [async, F1+F2]
+#     → run_brain_synthesis()  [síncrono, F3]
+#           → SYNTHESIS_ENABLED=true  → DocumentSynthesizer.synthesize()
+#           → SYNTHESIS_ENABLED=false → build_partial_passport() directo
+#           → BrainWriter.write()     → /data/brain/{slug}.md
+#           → IngestRouter.route()    → colecciones Qdrant
+#
+# Separación de concerns:
+#   - process_document_content() permanece async para compatibilidad con
+#     callers async (rutas FastAPI, tests).
+#   - run_brain_synthesis() es síncrono para Celery (no usa await en ningún
+#     punto — DocumentSynthesizer y IngestRouter son síncronos).
+# ===========================================================================
+
+
+def run_brain_synthesis(
+    processed_text: str,
+    blocks: list[dict],
+    filename: str,
+    search_space_id: int,
+    quality_meta: dict | None = None,
+    ingest_metadata: dict | None = None,
+) -> dict:
+    """
+    Ejecuta F3 del pipeline Brain: síntesis semántica, persistencia y vectorización.
+
+    Síncrono — diseñado para ejecutarse en un worker Celery. No usar await.
+
+    Args:
+        processed_text:  Texto preprocesado de F1+F2 (marcas ##/###/####).
+        blocks:          Bloques limpios del extractor (F1+F2).
+        filename:        Nombre original del fichero (con extensión).
+        search_space_id: ID del search space (multi-tenancy).
+        quality_meta:    Dict con avg_quality_score, has_pii, languages
+                         (salida de get_metadata_from_blocks). Opcional.
+        ingest_metadata: Dict de trazabilidad (ingest_origin, ingest_path, etc.).
+                         Si es None se genera uno por defecto.
+
+    Returns:
+        Dict con:
+          source           — slug del fichero (ej: "mi-informe")
+          passport_path    — ruta del .md en disco (ej: "/data/brain/mi-informe.md")
+          passport_md      — contenido completo del pasaporte generado
+          embedding_scope  — colecciones Qdrant donde se vectorizó
+          write_status     — "created" | "overwritten" | "exists_warning" | "empty"
+          llm_ok           — True si la síntesis LLM se completó correctamente
+
+    Raises:
+        RuntimeError: si la síntesis y el fallback mínimo fallan.
+    """
+    import os
+    import re
+    from datetime import datetime, timezone
+
+    from app.brain.synthesizer import DocumentSynthesizer
+    from app.brain.passport_builder import build_partial_passport
+    from app.brain.writer import BrainWriter
+    from app.brain.qdrant_manager import QdrantManager
+    from app.brain.ingest_router import IngestRouter
+
+    # ── Configuración desde entorno (cero hardcode) ────────────────────────────
+    synthesis_enabled = os.getenv("SYNTHESIS_ENABLED", "true").lower() == "true"
+
+    # Derivar extensión y slug del nombre de fichero
+    ext = os.path.splitext(filename)[1].lower().lstrip(".")
+    # Slug: minúsculas, guiones, máx 80 chars — igual que BrainWriter._slugify()
+    _name = os.path.splitext(os.path.basename(filename))[0]
+    source = re.sub(r"[^\w\s-]", "", _name.lower())
+    source = re.sub(r"[\s_]+", "-", source).strip("-")[:80] or "unnamed"
+
+    # Metadata de ingesta por defecto
+    if ingest_metadata is None:
+        ingest_metadata = {
+            "ingest_origin": "file_upload",
+            "ingest_path":   filename,
+        }
+
+    quality_meta = quality_meta or {}
+
+    logger.info(
+        "[brain_synthesis] Iniciando F3: file=%s source=%s space=%s "
+        "synthesis_enabled=%s blocks=%d chars=%d",
+        filename, source, search_space_id,
+        synthesis_enabled, len(blocks), len(processed_text),
+    )
+
+    # ── PASO 1: Síntesis LLM o modo raw ───────────────────────────────────────
+    passport_md = ""
+    llm_ok = False
+
+    if synthesis_enabled and blocks:
+        try:
+            synth = DocumentSynthesizer()
+            result = synth.synthesize(
+                source=source,
+                file_type=ext,
+                full_text=processed_text,
+                blocks=blocks,
+                metadata=quality_meta,
+                provider=None,   # DEFAULT_PROVIDER del .env (LLM_PROVIDER)
+                model=None,      # SYNTHESIS_MODEL del .env
+                ingest_metadata=ingest_metadata,
+            )
+            passport_md = result.get("md_content", "")
+            llm_ok = result.get("llm_ok", False)
+            logger.info(
+                "[brain_synthesis] Síntesis LLM completada: file=%s llm_ok=%s "
+                "passport_chars=%d tags=%d entities=%d",
+                filename, llm_ok,
+                len(passport_md),
+                len(result.get("tags", [])),
+                len(result.get("entities", [])),
+            )
+        except Exception as exc:
+            logger.error(
+                "[brain_synthesis] Error en síntesis LLM para '%s': %s. "
+                "Usando pasaporte parcial programático.",
+                filename, exc, exc_info=True,
+            )
+    else:
+        if not synthesis_enabled:
+            logger.info(
+                "[brain_synthesis] SYNTHESIS_ENABLED=false — "
+                "generando pasaporte parcial sin LLM para '%s'.", filename,
+            )
+        else:
+            logger.warning(
+                "[brain_synthesis] Sin bloques para '%s' — "
+                "generando pasaporte parcial sin LLM.", filename,
+            )
+
+    # Fallback al pasaporte parcial determinista si LLM no produjo resultado
+    if not passport_md or not passport_md.strip():
+        try:
+            partial = build_partial_passport(
+                source=source,
+                file_type=ext,
+                blocks=blocks,
+                full_text=processed_text,
+                metadata=quality_meta,
+                source_type=ingest_metadata.get("ingest_origin", "upload"),
+                source_location=ingest_metadata.get("ingest_path", ""),
+            )
+            passport_md = partial["passport_partial"]
+            logger.info(
+                "[brain_synthesis] Pasaporte parcial generado para '%s' "
+                "(%d chars).", filename, len(passport_md),
+            )
+        except Exception as exc:
+            logger.error(
+                "[brain_synthesis] Error generando pasaporte parcial para '%s': %s.",
+                filename, exc, exc_info=True,
+            )
+            # Pasaporte mínimo de último recurso
+            passport_md = f"---\nid: kb_{source}\ntitle: \"{source}\"\n---\n# {filename}\n\nSíntesis no disponible.\n"
+            logger.warning(
+                "[brain_synthesis] Usando pasaporte mínimo de emergencia para '%s'.",
+                filename,
+            )
+
+    # ── PASO 2: Calcular embedding_scope ──────────────────────────────────────
+    # Si hay bloques de código → añadir colección code
+    has_code = any(b.get("content_type") == "code" for b in blocks)
+    if llm_ok:
+        embedding_scope = ["brain", "knowledge", "code"] if has_code else ["brain", "knowledge"]
+    else:
+        # Pasaporte parcial/mínimo: no entra en brain (incompleto)
+        embedding_scope = ["knowledge", "code"] if has_code else ["knowledge"]
+
+    logger.debug(
+        "[brain_synthesis] embedding_scope=%s has_code=%s llm_ok=%s",
+        embedding_scope, has_code, llm_ok,
+    )
+
+    # ── PASO 3: Persistir pasaporte en disco ──────────────────────────────────
+    writer = BrainWriter()   # usa BRAIN_DIR del .env
+    write_result = writer.write(source=source, md_content=passport_md, overwrite=True)
+    passport_path = write_result.get("path", "")
+    write_status  = write_result.get("status", "unknown")
+
+    logger.info(
+        "[brain_synthesis] BrainWriter: file=%s source=%s "
+        "status=%s path=%s",
+        filename, source, write_status, passport_path,
+    )
+
+    if write_status == "empty":
+        logger.warning(
+            "[brain_synthesis] BrainWriter devolvió 'empty' para '%s' — "
+            "el pasaporte no se escribió en disco.", filename,
+        )
+
+    # ── PASO 4: Vectorizar en Qdrant ──────────────────────────────────────────
+    try:
+        qdrant_mgr = QdrantManager.get_instance()
+        router = IngestRouter(qdrant_client=qdrant_mgr.client)
+        route_result = router.route(
+            md_content=passport_md,
+            blocks=blocks,
+            source=source,
+            search_space_id=str(search_space_id),
+            ingest_metadata=ingest_metadata,
+        )
+        logger.info(
+            "[brain_synthesis] IngestRouter completado: file=%s space=%s "
+            "brain=%d knowledge=%d code=%d",
+            filename, search_space_id,
+            route_result.get("brain", {}).get("chunks_created", 0),
+            route_result.get("knowledge", {}).get("chunks_created", 0),
+            route_result.get("code", {}).get("chunks_created", 0),
+        )
+    except Exception as exc:
+        logger.error(
+            "[brain_synthesis] Error en IngestRouter para '%s' space=%s: %s",
+            filename, search_space_id, exc, exc_info=True,
+        )
+        # No re-raise: el pasaporte ya está en disco; la vectorización
+        # puede reintentarse en F3.7 con el mecanismo de reintento de Celery.
+
+    logger.info(
+        "[brain_synthesis] F3 completado: file=%s source=%s "
+        "llm_ok=%s write_status=%s passport_path=%s embedding_scope=%s",
+        filename, source, llm_ok, write_status, passport_path, embedding_scope,
+    )
+
+    return {
+        "source":          source,
+        "passport_path":   passport_path,
+        "passport_md":     passport_md,
+        "embedding_scope": embedding_scope,
+        "write_status":    write_status,
+        "llm_ok":          llm_ok,
+    }

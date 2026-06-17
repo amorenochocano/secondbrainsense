@@ -1,21 +1,29 @@
 """
 brain_watcher.py
 ----------------
-Watcher asíncrono que monitoriza la carpeta /data/brain y re-ingesta en c_brain
+Watcher asíncrono que monitoriza BRAIN_DIR y re-ingesta en la colección brain
 cualquier .md que sea creado o modificado manualmente.
 
 Flujo:
-  1. Usuario edita brain/documento.md
-  2. Watcher detecta el cambio (evento modify/add)
-  3. Borra chunks viejos de ese source en c_brain
-  4. Re-vectoriza el .md actualizado con BrainIngestor
+  1. Usuario edita /data/brain/documento.md
+  2. Watcher detecta el cambio (evento modify/add) vía watchfiles.awatch
+  3. Debounce de DEBOUNCE_SECONDS para evitar disparos múltiples por un guardado
+  4. _reingest_md() borra chunks viejos del slug y re-vectoriza el .md
 
-No toca c_doc_secondbrain (nivel 2). Solo actúa sobre c_brain (nivel 1).
+Decisión de diseño (DT-F3-watcher):
+  BrainIngestor genera IDs deterministas con md5(source+idx) → upsert idempotente.
+  El borrado selectivo por search_space_id se delega a F6 (Admin UI).
+
+Variables de entorno relevantes:
+  BRAIN_DIR       — directorio de pasaportes .md (default: /data/brain)
+  QDRANT_HOST     — host de Qdrant (default: localhost)
+  QDRANT_PORT     — puerto de Qdrant (default: 6333)
+  COLLECTION_BRAIN — nombre de la colección brain (default: brain)
+  EMBED_MODEL     — modelo de embedding para brain (default: nomic-embed-text)
 """
 import asyncio
 import logging
 import os
-import traceback
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -72,51 +80,70 @@ def _delete_old_chunks(qdrant_client, slug: str):
             log.info("[watcher] No se encontraron chunks previos para slug '%s' (total puntos en coleccion: %d)", slug, len(result))
         return ids
     except Exception as exc:
-        log.error("[watcher] Error borrando chunks para '%s': %s\n%s", slug, exc, traceback.format_exc())
+        log.error("[watcher] Error borrando chunks para '%s': %s", slug, exc, exc_info=True)
         return []
 
 
 def _reingest_md(md_path: str):
     """
-    Lee el .md del disco y lo re-vectoriza en c_brain.
-    El 'source' que se graba en el payload es el slug del .md (nombre del fichero sin .md).
+    Lee el .md del disco y lo re-vectoriza en la colección brain.
+
+    Usa _embed de ingest_router — la misma función que usa IngestRouter en el
+    pipeline principal. El modelo de embedding se lee de EMBED_MODEL (entorno)
+    para garantizar coherencia con las dimensiones de la colección brain.
+
+    Decisión de diseño F3 (DT-F3-watcher):
+      BrainIngestor.ingest_md() genera IDs deterministas con md5(source+idx),
+      por lo que re-ingestar el mismo .md es un upsert idempotente — no crea
+      duplicados aunque no se haya borrado el tenant anterior.
+      El borrado selectivo por search_space_id se delega a F6 (Admin UI).
     """
     from qdrant_client import QdrantClient
-    from ingest_utils import get_embedding
+    from app.brain.ingest_router import _embed       # FIX F3.6: sustituye ingest_utils inexistente
     from app.brain.brain_ingest import BrainIngestor
 
+    # Modelo de embedding desde entorno — debe coincidir con la dimensión de la colección brain
+    embed_model_name: str = os.getenv("EMBED_MODEL", "nomic-embed-text")
+
     slug = _source_from_md_path(md_path)
-    log.info("[watcher] Iniciando re-ingestión de '%s' (slug='%s')", md_path, slug)
+    log.info("[watcher] Re-ingestión de '%s' (slug='%s', embed_model='%s')",
+             md_path, slug, embed_model_name)
 
     try:
-        content = Path(md_path).read_text(encoding="utf-8")
-        content = content.lstrip("\ufeff")  # Eliminar BOM si el fichero fue creado con UTF-8 BOM
+        content = Path(md_path).read_text(encoding="utf-8").lstrip("\ufeff")
         log.debug("[watcher] Leídos %d caracteres de '%s'", len(content), md_path)
     except Exception as exc:
-        log.error("[watcher] No se pudo leer '%s': %s\n%s", md_path, exc, traceback.format_exc())
+        log.error("[watcher] No se pudo leer '%s': %s", md_path, exc, exc_info=True)
         return
 
     if not content.strip():
-        log.warning("[watcher] El fichero '%s' está vacío, se omite.", md_path)
+        log.warning("[watcher] '%s' está vacío, se omite.", md_path)
         return
 
     try:
         qdrant_client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
-        # Borra los chunks viejos
+
+        # Borrar chunks previos (sin filtro por search_space_id — ver DT-F3-watcher)
         _delete_old_chunks(qdrant_client, slug)
 
-        # Re-vectoriza
-        embed_model = type("EmbedModel", (), {"embed": staticmethod(get_embedding)})
+        # FIX F3.6: embed_model usa _embed(text, model) de ingest_router.
+        # El modelo se lee de EMBED_MODEL para coherencia con la colección brain.
+        embed_model = type("EmbedModel", (), {
+            "embed": staticmethod(lambda t: _embed(t, embed_model_name))
+        })
         ingestor = BrainIngestor(qdrant_client, embed_model, collection=C_BRAIN)
-        # Usamos el slug como source para mantener coherencia con lo que hay en Qdrant
+
         log.debug("[watcher] Vectorizando '%s' en colección '%s'", slug, C_BRAIN)
-        chunks_created = ingestor.ingest_md(source=slug, md_content=content, metadata={"md_path": md_path})
+        chunks_created = ingestor.ingest_md(
+            source=slug, md_content=content, metadata={"md_path": md_path}
+        )
         log.info(
-            "[watcher] Re-ingestión COMPLETADA '%s' → colección='%s', slug='%s', chunks=%d, chars=%d",
-            md_path, C_BRAIN, slug, chunks_created, len(content)
+            "[watcher] Re-ingestión completada: path='%s' slug='%s' "
+            "colección='%s' chunks=%d chars=%d",
+            md_path, slug, C_BRAIN, chunks_created, len(content),
         )
     except Exception as exc:
-        log.error("[watcher] Error re-ingestando '%s': %s\n%s", md_path, exc, traceback.format_exc())
+        log.error("[watcher] Error re-ingestando '%s': %s", md_path, exc, exc_info=True)
 
 
 async def watch_brain_dir():
