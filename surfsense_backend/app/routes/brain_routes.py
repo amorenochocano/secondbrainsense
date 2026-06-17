@@ -11,6 +11,8 @@ Endpoints:
 Cascada de retrieval:
   L1  : BrainRouter → colección 'brain' (pasaportes semánticos Qdrant)
   L2  : BrainRouter → colección 'knowledge' o 'code' (chunks semánticos Qdrant)
+  [CRAG]: Evaluador cualitativo opcional entre L2 y L2.b (crag_evaluator.py)
+          Solo recomendado con Claude/GPT-4. Con Ollama añade ~3-5s por chunk.
   L2.b: BM25 PostgreSQL via ChucksHybridSearchRetriever.full_text_search()
   L2.c: SearXNG web search via web_search_service.search()
   L0  : LLM libre — último recurso (desactivable con BRAIN_L0_ENABLED=false)
@@ -19,12 +21,15 @@ Separación de concerns:
   - BrainRouter (síncrono) gestiona L1 y L2 Qdrant.
   - brain_routes.py (async FastAPI) gestiona L2.b y L2.c porque requieren
     DB session y web service que no pertenecen al router síncrono.
+  - crag_evaluator.py gestiona la evaluación cualitativa CRAG entre L2 y L2.b.
 
 Variables de entorno:
   BRAIN_BM25_ENABLED     — activar BM25 como L2.b (default: true)
   BRAIN_WEB_ENABLED      — activar búsqueda web como L2.c (default: true)
   BRAIN_L0_ENABLED       — permitir L0 libre (default: true)
   BRAIN_WEB_MAX_RESULTS  — nº máximo de resultados web (default: 5)
+  CRAG_EVALUATOR_ENABLED — activar evaluador CRAG entre L2 y L2.b (default: false)
+                           Solo recomendado con Claude/GPT-4. Ver crag_evaluator.py.
   SYNTHESIS_MODEL        — modelo LLM activo (leído de llm_client.py)
   LLM_PROVIDER           — proveedor LLM activo (leído de llm_client.py)
 """
@@ -38,6 +43,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.brain.router import BrainRouter
 from app.brain.llm_client import LLMClient, SYNTHESIS_MODEL, DEFAULT_PROVIDER
 from app.brain.model_profiles import get_profile
+from app.brain.crag_evaluator import (
+    CRAG_EVALUATOR_ENABLED,
+    evaluar_chunks,
+    EvaluationResult,
+)
 from app.db import User, get_async_session
 from app.users import current_active_user
 
@@ -186,6 +196,7 @@ class BrainQueryResponse(BaseModel):
         context_chunks:
             Número de chunks efectivamente incluidos en el prompt del LLM.
             Acotado por ModelProfile.retrieval_chunk_budget.
+            Con CRAG activo: solo los chunks validados como relevantes.
             0 si level_used == 0 (L0 libre sin contexto).
             Útil para depuración y para entender la densidad de contexto.
 
@@ -212,18 +223,20 @@ async def brain_query(
     db: AsyncSession = Depends(get_async_session),
 ):
     """
-    Consulta al Second Brain con cascada multinivel L1→L2→BM25→Web→L0.
+    Consulta al Second Brain con cascada multinivel L1→L2→[CRAG]→BM25→Web→L0.
 
     La cascada se detiene en el primer nivel que produce contexto relevante.
     El presupuesto de chunks y la longitud máxima se adaptan automáticamente
     al tier del modelo activo (small/medium/claude) para no saturar el contexto.
 
     Cascada:
-      L1  → brain (pasaportes semánticos Qdrant, score ≥ ROUTER_L1_MIN_SCORE)
-      L2  → knowledge/code (chunks Qdrant con reranking cross-encoder)
-      L2.b→ BM25 PostgreSQL (tsvector, <100ms, si BRAIN_BM25_ENABLED=true)
-      L2.c→ Web SearXNG (si BRAIN_WEB_ENABLED=true)
-      L0  → LLM libre sin contexto (si BRAIN_L0_ENABLED=true, else 404)
+      L1    → brain (pasaportes semánticos Qdrant, score ≥ ROUTER_L1_MIN_SCORE)
+      L2    → knowledge/code (chunks Qdrant con reranking cross-encoder)
+      [CRAG]→ Evaluador cualitativo (si CRAG_EVALUATOR_ENABLED=true)
+              Solo con Claude/GPT-4. Con Ollama añade ~3-5s por chunk.
+      L2.b  → BM25 PostgreSQL (tsvector, <100ms, si BRAIN_BM25_ENABLED=true)
+      L2.c  → Web SearXNG (si BRAIN_WEB_ENABLED=true)
+      L0    → LLM libre sin contexto (si BRAIN_L0_ENABLED=true, else 404)
     """
     # ── Perfil del modelo activo ──────────────────────────────────────────────
     profile         = get_profile(SYNTHESIS_MODEL)
@@ -262,7 +275,6 @@ async def brain_query(
     if not route_result.get("fallback_needed") and route_result.get("results"):
         level   = route_result["level_used"]
         chunks  = _extract_chunks(route_result["results"], chunk_budget, chunk_max_chars)
-        context = _build_context(chunks)
         sources = route_result["sources_consulted"]
         label   = "🧠 Brain" if level == 1 else "📚 Knowledge"
 
@@ -270,11 +282,60 @@ async def brain_query(
             "[brain_query] L%d '%s' → %d chunks, %d sources",
             level, label, len(chunks), len(sources),
         )
-        answer = _call_llm(req.question, context=context, tier=tier, history=req.chat_history)
-        return BrainQueryResponse(
-            answer=answer, level_used=level, level_label=label,
-            sources=sources, context_chunks=len(chunks), model_tier=tier,
-        )
+
+        # ── CRAG Evaluador (solo si está activado) ────────────────────────────
+        # CRAG_EVALUATOR_ENABLED=false (default) → comportamiento idéntico al F4
+        # sin CRAG: latencia 0 adicional, sin llamadas LLM extra.
+        # CRAG_EVALUATOR_ENABLED=true → solo con Claude/GPT-4:
+        #   ~200ms por evaluación. Con Ollama local añade ~3-5s por chunk.
+        #   Ver crag_evaluator.py y activar desde Admin Brain (F6.10) tab LLM.
+        if CRAG_EVALUATOR_ENABLED and chunks:
+            logger.info(
+                "[brain_query] CRAG activado → evaluando %d chunks space=%d",
+                min(len(chunks), 3), req.search_space_id,
+            )
+            hay_relevante, evaluaciones = evaluar_chunks(req.question, chunks)
+            razonamientos = [ev.razonamiento for ev in evaluaciones]
+            logger.info(
+                "[brain_query] CRAG resultado: hay_relevante=%s evaluaciones=%d razonamientos=%s",
+                hay_relevante, len(evaluaciones), razonamientos,
+            )
+
+            if not hay_relevante:
+                # Ningún chunk pasa la evaluación cualitativa → escalar a L2.b BM25
+                logger.info(
+                    "[brain_query] CRAG: ningún chunk relevante → escalando a L2.b (BM25)"
+                )
+                # No retornamos — la ejecución cae al bloque L2.b BM25 más abajo
+            else:
+                # Al menos un chunk es relevante → responder solo con los validados
+                chunks_ok = [
+                    chunks[i] for i, ev in enumerate(evaluaciones)
+                    if ev.es_relevante
+                ]
+                context = _build_context(chunks_ok or chunks)
+                logger.info(
+                    "[brain_query] CRAG: %d/%d chunks validados → respondiendo",
+                    len(chunks_ok), len(chunks),
+                )
+                answer = _call_llm(
+                    req.question, context=context, tier=tier, history=req.chat_history,
+                )
+                return BrainQueryResponse(
+                    answer=answer, level_used=level, level_label=label,
+                    sources=sources, context_chunks=len(chunks_ok or chunks),
+                    model_tier=tier,
+                )
+        else:
+            # Sin CRAG: comportamiento original F4 — responder directamente sin validación
+            context = _build_context(chunks)
+            answer  = _call_llm(
+                req.question, context=context, tier=tier, history=req.chat_history,
+            )
+            return BrainQueryResponse(
+                answer=answer, level_used=level, level_label=label,
+                sources=sources, context_chunks=len(chunks), model_tier=tier,
+            )
 
     logger.info(
         "[brain_query] L1+L2 sin resultados relevantes (fallback_needed=%s) → escalando",
