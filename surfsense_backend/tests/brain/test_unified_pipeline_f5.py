@@ -469,7 +469,14 @@ class TestFallbacks:
         from app.indexing_pipeline.brain_ingestion_adapter import process_document
 
         doc = _make_document(DocumentType.FILE, doc_id=100)
-        cdoc = _make_connector_doc(title="empty.txt", source_markdown="", doc_type="FILE")
+        # ConnectorDocument valida que source_markdown no sea vacío →
+        # usar MagicMock para simular un doc con contenido vacío
+        cdoc = MagicMock(spec=ConnectorDocument)
+        cdoc.title = "empty.txt"
+        cdoc.source_markdown = ""
+        cdoc.unique_id = "unique-empty.txt"
+        cdoc.search_space_id = 1
+        cdoc.should_use_code_chunker = False
 
         result = await process_document(doc, cdoc)
         assert result == []
