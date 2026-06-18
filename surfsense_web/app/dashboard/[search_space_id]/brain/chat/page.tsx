@@ -21,7 +21,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -312,6 +312,7 @@ function ThinkingIndicator() {
 export default function BrainChatPage() {
   const params = useParams<{ search_space_id: string }>();
   const searchSpaceId = parseInt(params.search_space_id, 10);
+  const searchParams = useSearchParams();
 
   // Estado de conversación
   const [messages, setMessages] = useState<BrainChatMessage[]>([]);
@@ -325,6 +326,14 @@ export default function BrainChatPage() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Pre-rellenar input desde ?q= (p.ej. venido desde wiki/[source])
+  useEffect(() => {
+    const q = searchParams.get("q");
+    if (q) setInput(decodeURIComponent(q));
+  // Solo al montar — no reaccionar a cambios de searchParams para no sobreescribir lo que escribe el usuario
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Detección automática del modo según el texto escrito
   const detectedMode = detectRetrieveMode(input);

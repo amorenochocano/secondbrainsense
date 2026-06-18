@@ -451,7 +451,7 @@ export default function BrainIngestPage() {
   };
 
   const handleOpenWikiPassport = (source: string) => {
-    router.push(BRAIN_ROUTES.WIKI_PASSPORT(spaceId, encodeURIComponent(source)));
+    router.push(BRAIN_ROUTES.WIKI_PASSPORT(spaceId, source));
   };
 
   const handleGoIngest = () => setActiveTab("ingest");

@@ -32,6 +32,7 @@ import {
   Edit3,
   Eye,
   Loader2,
+  MessageCircle,
   RefreshCw,
   Save,
   Trash2,
@@ -511,6 +512,15 @@ export default function BrainWikiDetailPage() {
                   <Edit3 className="size-3.5" />
                   Editar
                 </Button>
+
+                <Link
+                  href={`${BRAIN_ROUTES.CHAT(params.search_space_id)}?q=${encodeURIComponent(`¿Qué sabes sobre ${source}?`)}`}
+                  title="Preguntar al Brain sobre este documento"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs text-violet-400 hover:text-violet-300 hover:bg-violet-500/10 transition-colors"
+                >
+                  <MessageCircle className="size-3.5" />
+                  <span className="hidden sm:inline">Preguntar</span>
+                </Link>
 
                 <Button
                   variant="ghost"
