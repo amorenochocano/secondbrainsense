@@ -67,15 +67,17 @@ export const BRAIN_ENDPOINTS = {
 
 /** Genera rutas Brain relativas a un search_space_id dado */
 export const BRAIN_ROUTES = {
-  HOME:       (spaceId: string) => `/dashboard/${spaceId}/brain/home`,
-  CHAT:       (spaceId: string) => `/dashboard/${spaceId}/brain/chat`,
-  WIKI:       (spaceId: string) => `/dashboard/${spaceId}/brain/wiki`,
-  WIKI_ITEM:  (spaceId: string, source: string) => `/dashboard/${spaceId}/brain/wiki/${encodeURIComponent(source)}`,
-  GRAPH:      (spaceId: string) => `/dashboard/${spaceId}/brain/graph`,
-  INGEST:     (spaceId: string) => `/dashboard/${spaceId}/brain/ingest`,
-  METRICS:    (spaceId: string) => `/dashboard/${spaceId}/brain/metrics`,
-  ADMIN:      (spaceId: string) => `/dashboard/${spaceId}/brain/admin`,
-  VOCABULARY: (spaceId: string) => `/dashboard/${spaceId}/brain/vocabulary`,
+  HOME:          (spaceId: string) => `/dashboard/${spaceId}/brain/home`,
+  CHAT:          (spaceId: string) => `/dashboard/${spaceId}/brain/chat`,
+  WIKI:          (spaceId: string) => `/dashboard/${spaceId}/brain/wiki`,
+  WIKI_ITEM:     (spaceId: string, source: string) => `/dashboard/${spaceId}/brain/wiki/${encodeURIComponent(source)}`,
+  /** Alias semántico de WIKI_ITEM — apunta al pasaporte de una fuente */
+  WIKI_PASSPORT: (spaceId: string, source: string) => `/dashboard/${spaceId}/brain/wiki/${encodeURIComponent(source)}`,
+  GRAPH:         (spaceId: string) => `/dashboard/${spaceId}/brain/graph`,
+  INGEST:        (spaceId: string) => `/dashboard/${spaceId}/brain/ingest`,
+  METRICS:       (spaceId: string) => `/dashboard/${spaceId}/brain/metrics`,
+  ADMIN:         (spaceId: string) => `/dashboard/${spaceId}/brain/admin`,
+  VOCABULARY:    (spaceId: string) => `/dashboard/${spaceId}/brain/vocabulary`,
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────

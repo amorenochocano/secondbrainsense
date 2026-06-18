@@ -58,6 +58,7 @@ import { DropdownMenuLabel } from "@/components/ui/dropdown-menu";
 import { useComments } from "@/hooks/use-comments";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useElectronAPI } from "@/hooks/use-platform";
+import { LevelBadge } from "@/components/brain";
 import { getProviderIcon } from "@/lib/provider-icons";
 import { tryGetHostname } from "@/lib/url";
 import { cn } from "@/lib/utils";
@@ -391,6 +392,16 @@ const NullBodyTool: ToolCallMessagePartComponent = () => null;
 const AssistantMessageInner: FC = () => {
 	const isMobile = !useMediaQuery("(min-width: 768px)");
 
+	/**
+	 * F6.12 — LevelBadge en el chat SurfSense principal.
+	 * Si la respuesta incluye metadata.custom.brain_level (rutas Brain F4),
+	 * se muestra el badge de nivel junto a la barra de acciones.
+	 */
+	const brainLevel = useAuiState(({ message }) => {
+		const meta = message?.metadata as { custom?: { brain_level?: number | null } } | undefined;
+		return meta?.custom?.brain_level ?? null;
+	});
+
 	return (
 		<CitationMetadataProvider>
 			<div className="aui-assistant-message-content wrap-break-word px-2 text-foreground leading-relaxed">
@@ -414,7 +425,10 @@ const AssistantMessageInner: FC = () => {
 			)}
 
 			<div className="aui-assistant-message-footer mt-3 mb-5 ml-2 h-6">
-				<div className="h-full opacity-100 transition-opacity">
+				<div className="h-full flex items-center gap-3 opacity-100 transition-opacity">
+					{brainLevel !== null && (
+						<LevelBadge level={brainLevel as Parameters<typeof LevelBadge>[0]["level"]} />
+					)}
 					<AssistantActionBar />
 				</div>
 			</div>
