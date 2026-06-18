@@ -259,3 +259,66 @@ export const BRAIN_INGEST_HISTORY_LIMIT = 10;
 export const BRAIN_CRAG_TIMEOUT_MIN = 5;
 export const BRAIN_CRAG_TIMEOUT_MAX = 30;
 export const BRAIN_CRAG_TIMEOUT_DEFAULT = 15;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Wiki semántica — opciones de UI
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Opciones de ordenación disponibles en la Wiki */
+export const BRAIN_WIKI_SORT_OPTIONS = [
+  { value: "importance", label: "Importancia" },
+  { value: "date",       label: "Más reciente" },
+  { value: "title",      label: "Título A→Z" },
+] as const;
+
+export type WikiSortOption = (typeof BRAIN_WIKI_SORT_OPTIONS)[number]["value"];
+
+/** Modos de visualización de la Wiki */
+export const BRAIN_WIKI_VIEW_MODES = ["grid", "list"] as const;
+export type WikiViewMode = (typeof BRAIN_WIKI_VIEW_MODES)[number];
+
+/** Máximo de tags visibles en un PassportCard antes de mostrar "+N más" */
+export const BRAIN_WIKI_MAX_VISIBLE_TAGS = 4 as const;
+
+/** Valor máximo de importancia de un pasaporte */
+export const BRAIN_IMPORTANCE_MAX = 5 as const;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Grafo interactivo — colores hex para canvas (react-force-graph)
+// Los Tailwind class names no se pueden usar en canvas 2D
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Colores hexadecimales de dominio para renderizado en canvas del grafo */
+export const BRAIN_DOMAIN_GRAPH_COLORS: Record<string, string> = {
+  engineering: "#a78bfa", // violet-400
+  data:        "#fb923c", // orange-400
+  business:    "#38bdf8", // sky-400
+  functional:  "#4ade80", // green-400
+  legal:       "#f87171", // red-400
+  other:       "#6b7280", // gray-500
+};
+
+/** Color por defecto de nodo cuando el dominio no está mapeado */
+export const BRAIN_GRAPH_NODE_DEFAULT_COLOR = "#6b7280" as const;
+
+/** Colores de aristas por tipo */
+export const BRAIN_GRAPH_EDGE_COLORS = {
+  related:    "rgba(167, 139, 250, 0.8)",  // violeta — referencia explícita
+  serie:      "rgba(96, 165, 250, 0.6)",   // azul — misma serie documental
+  tag_overlap: "rgba(75, 85, 99, 0.4)",    // gris — tags compartidos (reducción de ruido)
+} as const;
+
+/** Grosor de aristas por tipo */
+export const BRAIN_GRAPH_EDGE_WIDTHS = {
+  related:    2,
+  serie:      1.5,
+  tag_overlap: 1,
+} as const;
+
+/** Tamaño mínimo de nodo (importancia = 1) */
+export const BRAIN_GRAPH_NODE_SIZE_MIN = 4 as const;
+/** Tamaño máximo de nodo (importancia = 5) */
+export const BRAIN_GRAPH_NODE_SIZE_MAX = 14 as const;
+
+/** Número máximo de caracteres del resumen visible en el tooltip del nodo */
+export const BRAIN_GRAPH_TOOLTIP_SUMMARY_LENGTH = 160 as const;

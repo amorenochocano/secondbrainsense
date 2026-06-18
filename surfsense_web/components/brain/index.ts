@@ -10,3 +10,4 @@ export { LevelBadge } from "./LevelBadge";
 export { SourceCard } from "./SourceCard";
 export { DomainBadge } from "./DomainBadge";
 export { BrainBreadcrumb } from "./BrainBreadcrumb";
+export { PassportCard } from "./PassportCard";
