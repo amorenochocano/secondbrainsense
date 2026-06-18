@@ -438,7 +438,13 @@ services:
           "pytest-cov>=6.0.0" \
           "httpx>=0.28.1" \
           "ollama>=0.4.0" &&
-        python -m pytest tests/brain/ -v
+        exec python -m pytest "$@"
+      - --
+    # Uso:
+    #   docker compose -f docker/docker-compose.dev.yml --profile tests run --rm tests \
+    #     tests/brain/test_unified_pipeline_f5.py -v
+    #   docker compose -f docker/docker-compose.dev.yml --profile tests run --rm tests \
+    #     tests/brain/ -v --cov=app/brain --cov-report=term-missing
     restart: "no"
 
 volumes:
