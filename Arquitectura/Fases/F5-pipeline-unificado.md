@@ -341,31 +341,87 @@ La combinación de resultados de ambas fuentes se hace con Reciprocal Rank Fusio
 
 ---
 
-## F5.4 — `unified_embedder.py`: Un solo modelo de embedding (Día 2)
+## F5.4 — `unified_embedder.py`: Embedding multi-provider centralizado (Día 2)
 
 **Fichero:** `surfsense_backend/app/indexing_pipeline/unified_embedder.py` ← **CREAR**
 
-```python
-"""
-unified_embedder.py
--------------------
-Módulo centralizado de embedding para toda la plataforma SecondBrainSense.
+### Arquitectura multi-provider
 
-UN SOLO MODELO para ingesta y consulta — garantiza que los vectores de
-chunks y los vectores de queries usan el mismo espacio semántico.
+El embedding sigue el mismo patrón multi-provider que `llm_client.py` usa para los modelos LLM:
 
-Modelo: nomic-embed-text (768 dimensiones) vía Ollama local.
-Ventaja sobre all-MiniLM-L6-v2 (384d): mayor capacidad semántica,
-mejor rendimiento en retrieval multilingüe.
+```
+                      ┌───────────────────────────────┐
+                      │   unified_embedder.py         │
+                      │   embed_query() / embed_chunks()│
+                      └───────────────┬───────────────┘
+                                      │
+                         BRAIN_EMBEDDING_PROVIDER
+                                      │
+              ┌───────────────────┬──┴──────────────────┬─ ─ ─ ─ ─ ─ ─ ─ ─ ─
+              │                   │                      │
+         "ollama"      "sentence-transformers"    "openai" (futuro)
+              │                   │                      │
+    _embed_ollama()   _embed_sentence_          _embed_openai()
+    nomic-embed-text   transformers()            text-embedding-
+    768 dimensiones   all-MiniLM-L6-v2           3-small
+    vía Ollama local  384 dimensiones            vía API
+                      vía HuggingFace local
+```
 
-API:
-  embed_query(text: str) -> list[float]       # para búsqueda
-  embed_chunks(texts: list[str]) -> list[list[float]]  # para indexación
+Dos variables de entorno controlan todo el comportamiento:
+- `BRAIN_EMBEDDING_PROVIDER` — qué BACKEND ejecuta el embedding
+- `BRAIN_EMBEDDING_MODEL` — qué MODELO usa dentro de ese backend
 
-Variables de entorno:
-  BRAIN_EMBEDDING_MODEL — nombre del modelo (default: nomic-embed-text)
-  OLLAMA_HOST           — URL del servidor Ollama
-"""
+Son independientes: puedes cambiar de modelo sin cambiar de provider, o cambiar de provider manteniendo un modelo equivalente.
+
+### Providers implementados
+
+| Provider | Modelos | Requisitos | Latencia/chunk |
+|----------|---------|-----------|----------------|
+| `ollama` | nomic-embed-text (768d), nomic-embed-code (2560d) | Ollama corriendo en host | ~50ms CPU |
+| `sentence-transformers` | all-MiniLM-L6-v2 (384d), all-mpnet-base-v2 (768d) | `pip install sentence-transformers` | ~20ms CPU |
+| `openai` (futuro) | text-embedding-3-small (1536d) | OPENAI_API_KEY | ~100ms (red) |
+| `cohere` (futuro) | embed-multilingual-v3.0 (1024d) | COHERE_API_KEY | ~80ms (red) |
+
+### Cómo añadir un nuevo provider
+
+1. Añadir `elif provider == "nuevo"` en `embed_single()` de `unified_embedder.py`
+2. Implementar `_embed_nuevo(text, model)` en el mismo fichero
+3. Documentar variables necesarias en `docker/.env`
+4. Listo — todo el sistema (ingesta + búsqueda + Brain + chat) lo usa automáticamente
+
+**Ningún otro fichero necesita cambios.** El provider es transparente para:
+- `brain_ingestion_adapter.py` (F5.1)
+- `chunks_hybrid_search.py` (F5.3)
+- `knowledge_search.py` (F5.5)
+- `router.py` (F4)
+- `ingest_router.py` (F2)
+
+### Variables de entorno
+
+```bash
+BRAIN_EMBEDDING_PROVIDER=ollama              # Backend: ollama | sentence-transformers
+BRAIN_EMBEDDING_MODEL=nomic-embed-text       # Modelo dentro del provider
+OLLAMA_HOST=http://host.docker.internal:11434  # Solo si provider=ollama
+OLLAMA_EMBED_TIMEOUT=120                     # Solo si provider=ollama
+```
+
+### Cambiar de modelo (ej: de nomic-embed-text a all-MiniLM-L6-v2)
+
+```bash
+# 1. Cambiar en .env:
+BRAIN_EMBEDDING_PROVIDER=sentence-transformers
+BRAIN_EMBEDDING_MODEL=all-MiniLM-L6-v2
+
+# 2. Recrear colecciones Qdrant (dimensión cambia de 768 a 384)
+# Ver runbook F7 para el procedimiento
+
+# 3. Re-indexar documentos existentes
+docker compose exec backend python -m scripts.migrate_pgvector_to_qdrant
+
+# 4. Reiniciar
+docker compose restart backend celery_worker
+```
 ```
 
 ---
