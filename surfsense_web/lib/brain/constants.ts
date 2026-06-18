@@ -322,3 +322,136 @@ export const BRAIN_GRAPH_NODE_SIZE_MAX = 14 as const;
 
 /** Número máximo de caracteres del resumen visible en el tooltip del nodo */
 export const BRAIN_GRAPH_TOOLTIP_SUMMARY_LENGTH = 160 as const;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ingesta avanzada — fases del pipeline y categorías F5
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Fases del pipeline Brain en orden de ejecución.
+ * Fuente: brain_ingest.py — 4 fases secuenciales via SSE.
+ */
+export const BRAIN_INGEST_PHASES = [
+  { key: "extraction",    icon: "📥", label: "Extracción",     detail: "Parseando formato del documento" },
+  { key: "synthesis",     icon: "🧠", label: "Síntesis L1",    detail: "Generando pasaporte semántico → brain" },
+  { key: "chunking",      icon: "📦", label: "Chunking L2",    detail: "Dividiendo en chunks → knowledge/code" },
+  { key: "vectorization", icon: "🔢", label: "Vectorización",  detail: "Almacenando embeddings en Qdrant" },
+] as const;
+
+export type IngestPhaseKey = (typeof BRAIN_INGEST_PHASES)[number]["key"];
+
+/**
+ * Categorías del pipeline F5 unificado.
+ * A = extractor especializado, B = limpieza avanzada, C = genérico.
+ */
+export const BRAIN_INGEST_CATEGORIES = {
+  A: {
+    label: "Categoría A",
+    desc: "Extractor especializado + síntesis completa",
+    classes: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
+  },
+  B: {
+    label: "Categoría B",
+    desc: "Limpieza avanzada + chunking semántico",
+    classes: "bg-yellow-500/10 text-yellow-300 border-yellow-500/30",
+  },
+  C: {
+    label: "Categoría C",
+    desc: "Pipeline genérico (página web / texto sin extractor)",
+    classes: "bg-blue-500/10 text-blue-300 border-blue-500/30",
+  },
+} as const;
+
+export type IngestCategory = keyof typeof BRAIN_INGEST_CATEGORIES;
+
+/**
+ * Mapeo de extensión de fichero a categoría del pipeline F5.
+ * Extensiones sin entrada → Categoría C (genérico).
+ */
+export const BRAIN_INGEST_EXTENSION_CATEGORY: Record<string, IngestCategory> = {
+  ".py":    "A", ".sql":   "A", ".ipynb": "A",
+  ".json":  "A", ".xml":   "A",
+  ".md":    "B", ".drawio": "B", ".xlsx":  "B",
+  ".pdf":   "B", ".docx":  "B", ".pptx":  "B",
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Admin Brain — tabs y claves de configuración
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Tabs del Admin Brain en orden de aparición */
+export const BRAIN_ADMIN_TABS = [
+  { key: "chunking",    icon: "✂️",  label: "Chunking" },
+  { key: "retrieval",   icon: "🔍",  label: "Retrieval" },
+  { key: "llm",         icon: "🤖",  label: "LLM" },
+  { key: "collections", icon: "📦",  label: "Colecciones" },
+  { key: "system",      icon: "🖥️", label: "Sistema" },
+] as const;
+
+export type AdminTabKey = (typeof BRAIN_ADMIN_TABS)[number]["key"];
+
+/** Estrategias de chunking disponibles */
+export const BRAIN_CHUNK_STRATEGIES = [
+  { value: "paragraph", label: "Párrafo (semántico)" },
+  { value: "token",     label: "Token (tamaño fijo)" },
+  { value: "hybrid",    label: "Híbrido (párrafo + token)" },
+] as const;
+
+/** Rango de chunk_size y chunk_overlap */
+export const BRAIN_CHUNK_SIZE_MIN     = 100 as const;
+export const BRAIN_CHUNK_SIZE_MAX     = 4096 as const;
+export const BRAIN_CHUNK_OVERLAP_MIN  = 0 as const;
+export const BRAIN_CHUNK_OVERLAP_MAX  = 512 as const;
+
+/** Rango de scores del router */
+export const BRAIN_ROUTER_SCORE_MIN   = 0.0 as const;
+export const BRAIN_ROUTER_SCORE_MAX   = 1.0 as const;
+export const BRAIN_ROUTER_SCORE_STEP  = 0.05 as const;
+
+/** Timeout CRAG mínimo y máximo (segundos) */
+export const BRAIN_CRAG_TIMEOUT_MIN   = 5 as const;
+export const BRAIN_CRAG_TIMEOUT_MAX   = 30 as const;
+
+/** Rango de calidad de ingesta */
+export const BRAIN_QUALITY_THRESHOLD_MIN  = 0.0 as const;
+export const BRAIN_QUALITY_THRESHOLD_MAX  = 1.0 as const;
+export const BRAIN_QUALITY_THRESHOLD_STEP = 0.05 as const;
+
+/** Proveedores LLM disponibles en Admin Brain */
+export const BRAIN_LLM_PROVIDERS = ["ollama", "anthropic", "openai"] as const;
+export type BrainLlmProvider = (typeof BRAIN_LLM_PROVIDERS)[number];
+
+/** Perfiles CRAG por proveedor — para mostrar en el UI sin hardcode */
+export const BRAIN_CRAG_PROFILES: Record<BrainLlmProvider, { maxChunks: number; batch: number; desc: string }> = {
+  ollama:    { maxChunks: 3, batch: 1, desc: "3 chunks máx, 1 chunk/llamada, early exit, parsing robusto" },
+  anthropic: { maxChunks: 8, batch: 3, desc: "8 chunks máx, 3 chunks/llamada batch, confianza numérica" },
+  openai:    { maxChunks: 6, batch: 3, desc: "6 chunks máx, 3 chunks/llamada batch, JSON mode nativo" },
+};
+
+/** Latencias estimadas CRAG por proveedor */
+export const BRAIN_CRAG_LATENCY: Record<BrainLlmProvider, string> = {
+  ollama:    "+9-15s por consulta (3 chunks × 3-5s)",
+  anthropic: "+0.5-1.5s por consulta (3 batches × ~200ms)",
+  openai:    "+0.6-2s por consulta (2 batches × ~300ms)",
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Vocabulario — CRUD maestros
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Tabs de la página de vocabulario en orden */
+export const BRAIN_VOCABULARY_TABS = [
+  { key: "domains",      icon: "🗂️", label: "Dominios" },
+  { key: "doc_types",    icon: "📄",  label: "Tipos de doc" },
+  { key: "entity_hints", icon: "🔖",  label: "Entity Hints" },
+  { key: "vocabulary",   icon: "📝",  label: "Vocabulario" },
+] as const;
+
+export type VocabularyTabKey = (typeof BRAIN_VOCABULARY_TABS)[number]["key"];
+
+/** Regex de validación para canonical_tag y aliases (slug normalizado) */
+export const BRAIN_VOCAB_TAG_REGEX = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
+
+/** Mensaje de error de validación de tag */
+export const BRAIN_VOCAB_TAG_ERROR = "Solo minúsculas, números y guiones. Sin espacios ni caracteres especiales.";
+

@@ -192,3 +192,150 @@ export const healthResponse = z.object({
   redis:      serviceHealthStatus.optional(),
 });
 export type HealthResponse = z.infer<typeof healthResponse>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/v1/brain/ingest/url + SSE /api/v1/brain/ingest/stream
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const ingestUrlRequest = z.object({
+  url:             z.string().url(),
+  search_space_id: z.number().int().positive(),
+  model:           z.string().optional(),
+});
+export type IngestUrlRequest = z.infer<typeof ingestUrlRequest>;
+
+export const ingestJobResponse = z.object({
+  job_id:     z.string(),
+  message:    z.string().optional().nullable(),
+  /** true cuando el fichero supera BRAIN_INGEST_BACKGROUND_THRESHOLD_BYTES */
+  background: z.boolean().default(false),
+});
+export type IngestJobResponse = z.infer<typeof ingestJobResponse>;
+
+/** Estado de cada fase del pipeline durante el streaming SSE */
+export const ingestPhaseStatus = z.enum(["idle", "running", "ok", "warn", "error", "skip"]);
+export type IngestPhaseStatus = z.infer<typeof ingestPhaseStatus>;
+
+/** Evento SSE emitido por el backend por cada fase del pipeline */
+export const ingestPhaseEvent = z.object({
+  phase:   z.enum(["extraction", "synthesis", "chunking", "vectorization"]),
+  status:  ingestPhaseStatus,
+  detail:  z.string().optional().nullable(),
+  /** Número de chunks generados (solo en fase chunking) */
+  chunks:  z.number().int().nonnegative().optional().nullable(),
+});
+export type IngestPhaseEvent = z.infer<typeof ingestPhaseEvent>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/v1/admin/ollama-models
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const ollamaModelsResponse = z.object({
+  models: z.array(z.string()),
+});
+export type OllamaModelsResponse = z.infer<typeof ollamaModelsResponse>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET|POST /api/v1/admin/config
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Configuración activa del pipeline Brain — todos los campos son opcionales en PATCH */
+export const adminConfigResponse = z.object({
+  // Chunking
+  BRAIN_CHUNK_STRATEGY:      z.string().optional().nullable(),
+  BRAIN_CHUNK_SIZE:          z.number().int().optional().nullable(),
+  BRAIN_CHUNK_OVERLAP:       z.number().int().optional().nullable(),
+  // Retrieval
+  ROUTER_L1_HIGH_SCORE:      z.number().optional().nullable(),
+  ROUTER_L1_MIN_SCORE:       z.number().optional().nullable(),
+  BRAIN_TOP_K:               z.number().int().optional().nullable(),
+  BRAIN_RERANKING_ENABLED:   z.boolean().optional().nullable(),
+  // LLM síntesis
+  BRAIN_LLM_PROVIDER:        z.string().optional().nullable(),
+  BRAIN_LLM_MODEL:           z.string().optional().nullable(),
+  BRAIN_LLM_TEMPERATURE:     z.number().optional().nullable(),
+  BRAIN_LLM_MAX_TOKENS:      z.number().int().optional().nullable(),
+  // Ingesta (F5 unificada)
+  BRAIN_INGESTION_ENABLED:   z.boolean().optional().nullable(),
+  BRAIN_SYNTHESIS_ENABLED:   z.boolean().optional().nullable(),
+  BRAIN_EMBEDDING_MODEL:     z.string().optional().nullable(),
+  BRAIN_QUALITY_THRESHOLD:   z.number().optional().nullable(),
+  // CRAG
+  CRAG_EVALUATOR_ENABLED:    z.boolean().optional().nullable(),
+  CRAG_EVALUATOR_PROVIDER:   z.string().optional().nullable(),
+  CRAG_EVALUATOR_MODEL:      z.string().optional().nullable(),
+  CRAG_MAX_EVAL_CHUNKS:      z.number().int().optional().nullable(),
+  CRAG_EVAL_TIMEOUT:         z.number().int().optional().nullable(),
+  CRAG_REWRITER_MODEL:       z.string().optional().nullable(),
+}).passthrough();
+export type AdminConfigResponse = z.infer<typeof adminConfigResponse>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Vocabulary — GET/POST/PUT/DELETE /api/v1/brain/admin/domains | doc-types | etc.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Un dominio semántico registrado en brain_domains */
+export const brainDomainRecord = z.object({
+  id:           z.number().int(),
+  domain_key:   z.string(),
+  label:        z.string(),
+  description:  z.string().optional().nullable(),
+  signal_tags:  z.array(z.string()).default([]),
+  signal_kw:    z.array(z.string()).default([]),
+  scope:        z.enum(["global", "space"]).default("space"),
+  is_active:    z.boolean().default(true),
+  search_space_id: z.number().int().optional().nullable(),
+});
+export type BrainDomainRecord = z.infer<typeof brainDomainRecord>;
+export const brainDomainListResponse = z.array(brainDomainRecord);
+
+/** Un tipo de documento registrado en brain_doc_types */
+export const brainDocTypeRecord = z.object({
+  id:               z.number().int(),
+  type_key:         z.string(),
+  label:            z.string(),
+  description:      z.string().optional().nullable(),
+  signal_formats:   z.array(z.string()).default([]),
+  signal_kw:        z.array(z.string()).default([]),
+  scope:            z.enum(["global", "space"]).default("space"),
+  is_active:        z.boolean().default(true),
+  search_space_id:  z.number().int().optional().nullable(),
+});
+export type BrainDocTypeRecord = z.infer<typeof brainDocTypeRecord>;
+export const brainDocTypeListResponse = z.array(brainDocTypeRecord);
+
+/** Un hint de entidad registrado en brain_entity_hints */
+export const brainEntityHintRecord = z.object({
+  id:           z.number().int(),
+  hint_key:     z.string(),
+  label:        z.string(),
+  domain_key:   z.string().optional().nullable(),
+  doc_type_key: z.string().optional().nullable(),
+  patterns:     z.array(z.string()).default([]),
+  examples:     z.array(z.string()).default([]),
+  is_active:    z.boolean().default(true),
+  search_space_id: z.number().int().optional().nullable(),
+});
+export type BrainEntityHintRecord = z.infer<typeof brainEntityHintRecord>;
+export const brainEntityHintListResponse = z.array(brainEntityHintRecord);
+
+/** Una entrada canónica del vocabulario en brain_vocabulary */
+export const brainVocabularyRecord = z.object({
+  id:             z.number().int(),
+  canonical_tag:  z.string(),
+  aliases:        z.array(z.string()).default([]),
+  scope:          z.enum(["global", "space"]).default("space"),
+  is_active:      z.boolean().default(true),
+  search_space_id: z.number().int().optional().nullable(),
+});
+export type BrainVocabularyRecord = z.infer<typeof brainVocabularyRecord>;
+export const brainVocabularyListResponse = z.array(brainVocabularyRecord);
+
+/** Respuesta del lookup de alias → canónica */
+export const vocabularyLookupResponse = z.object({
+  canonical_tag:  z.string().optional().nullable(),
+  aliases:        z.array(z.string()).default([]),
+  found:          z.boolean(),
+});
+export type VocabularyLookupResponse = z.infer<typeof vocabularyLookupResponse>;
+
