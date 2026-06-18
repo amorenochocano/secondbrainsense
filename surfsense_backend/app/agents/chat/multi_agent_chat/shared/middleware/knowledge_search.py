@@ -65,6 +65,9 @@ from app.db import (
 )
 from app.retriever.chunks_hybrid_search import ChucksHybridSearchRetriever
 from app.utils.document_converters import embed_texts
+# F5.5 — Embedding unificado: nomic-embed-text cuando Brain está activo,
+# fallback a embed_texts (all-MiniLM-L6-v2) cuando está desactivado.
+from app.indexing_pipeline.unified_embedder import embed_query as _brain_embed_query
 from app.utils.perf import get_perf_logger
 
 logger = logging.getLogger(__name__)
@@ -470,12 +473,21 @@ async def search_knowledge_base(
     if not query:
         return []
 
-    # ``embed_texts`` serializes behind a global embedding lock and, for API
-    # models, makes a network round-trip — so this can stall while another
-    # turn is embedding. Timed separately from the DB search to tell the two
-    # apart when debugging slow time-to-first-token.
+    # F5.5 — Dispatch de embedding según pipeline activo:
+    # BRAIN_INGESTION_ENABLED=true → nomic-embed-text 768d (unified_embedder)
+    # BRAIN_INGESTION_ENABLED=false → all-MiniLM-L6-v2 384d (embed_texts original)
+    # El modelo de embedding de la QUERY debe coincidir con el de los CHUNKS
+    # indexados, o la búsqueda vectorial devolverá basura.
+    import os
+    _brain_enabled = os.getenv("BRAIN_INGESTION_ENABLED", "true").lower() == "true"
+
     _t_embed = time.perf_counter()
-    [embedding] = await asyncio.to_thread(embed_texts, [query])
+    if _brain_enabled:
+        # nomic-embed-text 768d — mismo modelo que brain_ingestion_adapter
+        embedding = await asyncio.to_thread(_brain_embed_query, query)
+    else:
+        # Fallback: all-MiniLM-L6-v2 384d — modelo original SurfSense
+        [embedding] = await asyncio.to_thread(embed_texts, [query])
     _embed_elapsed = time.perf_counter() - _t_embed
 
     doc_types = _resolve_search_types(available_connectors, available_document_types)
@@ -491,7 +503,7 @@ async def search_knowledge_base(
             document_type=doc_types,
             start_date=start_date,
             end_date=end_date,
-            query_embedding=embedding.tolist(),
+            query_embedding=embedding.tolist() if hasattr(embedding, "tolist") else embedding,
         )
     _search_elapsed = time.perf_counter() - _t_search
 

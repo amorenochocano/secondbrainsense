@@ -384,38 +384,61 @@ class IndexingPipelineService:
                 delete(Chunk).where(Chunk.document_id == document.id)
             )
 
+            # ── F5.2 — Pipeline unificado Brain ─────────────────────────
+            # Reemplaza chunk_text_hybrid + embed_texts (pgvector) por el
+            # pipeline Second Brain: extractores + Cleaner + nomic → Qdrant.
+            # BRAIN_INGESTION_ENABLED=false → fallback al pipeline SurfSense
+            # original para rollback instantáneo sin redespliegue.
+            # Ver app/indexing_pipeline/brain_ingestion_adapter.py
             t_step = time.perf_counter()
-            if connector_doc.should_use_code_chunker:
-                chunk_texts = await asyncio.to_thread(
-                    chunk_text,
-                    connector_doc.source_markdown,
-                    use_code_chunker=True,
-                )
-            else:
-                # Use the table-aware hybrid chunker so Markdown tables are not
-                # split mid-row (see issue #1334).
-                chunk_texts = await asyncio.to_thread(
-                    chunk_text_hybrid,
-                    connector_doc.source_markdown,
-                )
-
-            texts_to_embed = [content, *chunk_texts]
-            embeddings = await asyncio.to_thread(embed_texts, texts_to_embed)
-            summary_embedding, *chunk_embeddings = embeddings
-
-            chunks = [
-                Chunk(content=text, embedding=emb)
-                for text, emb in zip(chunk_texts, chunk_embeddings, strict=False)
-            ]
-            perf.info(
-                "[indexing] chunk+embed doc=%d chunks=%d in %.3fs",
-                document.id,
-                len(chunks),
-                time.perf_counter() - t_step,
+            from app.indexing_pipeline.brain_ingestion_adapter import (
+                process_document as brain_process_document,
+                BRAIN_INGESTION_ENABLED,
             )
 
+            if BRAIN_INGESTION_ENABLED:
+                # Pipeline Brain: extractor + Cleaner + nomic → Qdrant
+                # process_document() nunca lanza excepción — fallback interno.
+                # Los embeddings ya están en Qdrant (colección knowledge).
+                # Solo guardamos texto en PostgreSQL para BM25.
+                chunk_texts = await brain_process_document(document, connector_doc)
+                chunks = [Chunk(content=text) for text in chunk_texts]
+                perf.info(
+                    "[indexing] F5 brain pipeline doc=%d chunks=%d in %.3fs",
+                    document.id,
+                    len(chunks),
+                    time.perf_counter() - t_step,
+                )
+            else:
+                # Fallback SurfSense original — para rollback de emergencia
+                # Mantiene chunk_text_hybrid + embed_texts → pgvector
+                if connector_doc.should_use_code_chunker:
+                    chunk_texts = await asyncio.to_thread(
+                        chunk_text,
+                        connector_doc.source_markdown,
+                        use_code_chunker=True,
+                    )
+                else:
+                    chunk_texts = await asyncio.to_thread(
+                        chunk_text_hybrid,
+                        connector_doc.source_markdown,
+                    )
+                texts_to_embed = [content, *chunk_texts]
+                embeddings = await asyncio.to_thread(embed_texts, texts_to_embed)
+                summary_embedding, *chunk_embeddings = embeddings
+                chunks = [
+                    Chunk(content=text, embedding=emb)
+                    for text, emb in zip(chunk_texts, chunk_embeddings, strict=False)
+                ]
+                document.embedding = summary_embedding
+                perf.info(
+                    "[indexing] fallback surfsense doc=%d chunks=%d in %.3fs",
+                    document.id,
+                    len(chunks),
+                    time.perf_counter() - t_step,
+                )
+
             document.content = content
-            document.embedding = summary_embedding
             attach_chunks_to_document(document, chunks)
             document.updated_at = datetime.now(UTC)
             document.status = DocumentStatus.ready()
