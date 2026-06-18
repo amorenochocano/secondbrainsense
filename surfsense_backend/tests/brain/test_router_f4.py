@@ -130,23 +130,33 @@ class TestBrainRouterMultiTenant:
     def test_search_filtered_incluye_tenant_y_source(self):
         """
         _search_filtered() añade FieldCondition de tenant Y de source en must[].
-        Verifica G7: ambos filtros presentes en la búsqueda L2.
+        Verifica G7: ambos filtros presentes en la PRIMERA llamada a Qdrant (L2).
+
+        Nota: se inspecciona call_args_list[0] (primera llamada) porque si Qdrant
+        devuelve vacío se activa el fallback tenant-only (segunda llamada sin source).
+        El test fuerza un resultado no vacío para que no haya fallback.
         """
         router = BrainRouter(search_space_id="space-F4")
         mock_qdrant = MagicMock()
-        mock_qdrant.search.return_value = []
+        # Devolver un resultado para evitar el fallback tenant-only
+        mock_point = MagicMock()
+        mock_point.score = 0.7
+        mock_point.payload = {"text": "texto", "source": "doc-a.py"}
+        mock_qdrant.search.return_value = [mock_point]
         router._qdrant = mock_qdrant
 
         with patch("app.brain.router._embed_for_collection", return_value=[0.1] * 768):
-            router._search_filtered(
-                collection=KNOWLEDGE,
-                query="query de prueba",
-                top_k=4,
-                sources=["doc-a.py", "doc-b.md"],
-            )
+            with patch("app.brain.router.RERANKING_ENABLED", False):
+                router._search_filtered(
+                    collection=KNOWLEDGE,
+                    query="query de prueba",
+                    top_k=4,
+                    sources=["doc-a.py", "doc-b.md"],
+                )
 
-        call_kwargs = mock_qdrant.search.call_args.kwargs
-        filter_obj = call_kwargs["query_filter"]
+        # Inspeccionar la primera llamada — contiene tenant + source
+        first_call = mock_qdrant.search.call_args_list[0].kwargs
+        filter_obj = first_call["query_filter"]
         assert filter_obj is not None, "query_filter no debe ser None en _search_filtered"
         keys = [c.key for c in filter_obj.must]
         assert "search_space_id" in keys, "Filtro tenant ausente en _search_filtered"
