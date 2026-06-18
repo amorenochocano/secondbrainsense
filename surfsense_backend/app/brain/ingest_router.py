@@ -34,41 +34,21 @@ log = logging.getLogger(__name__)
 
 def _embed(text: str, model: str = "nomic-embed-text") -> list[float]:
     """
-    Genera embedding con Ollama.
-    - Si el modelo solicitado no está disponible, hace fallback a nomic-embed-text.
-    - Capa 2 de seguridad: si el texto supera el contexto del modelo (chunks oversized
-      de código Python/SQL/XML/JSON sin separadores de párrafo), trunca a MAX_CHUNK_CHARS
-      y reintenta. Esto complementa la Capa 1 en chunking.py (_enforce_max_chunk_size).
+    Genera embedding delegando a unified_embedder.embed_single().
+
+    F5 FIX: Centraliza el embedding en un solo módulo para que si se cambia
+    BRAIN_EMBEDDING_PROVIDER (ej: de ollama a sentence-transformers), tanto
+    la indexación como la búsqueda usen el mismo backend automáticamente.
+
+    Args:
+        text:  Texto a embedir.
+        model: Modelo de embedding (default: nomic-embed-text).
+
+    Returns:
+        Vector de embedding.
     """
-    import ollama
-    _max_chars = int(os.getenv("MAX_CHUNK_CHARS", 4000))
-    client = ollama.Client(host=os.getenv("OLLAMA_HOST", "http://localhost:11434"), timeout=120)
-
-    def _call(t: str, m: str) -> list[float]:
-        try:
-            return client.embeddings(model=m, prompt=t)["embedding"]
-        except Exception as exc:
-            err = str(exc).lower()
-            if "context length" in err or "input length" in err:
-                truncated = t[:_max_chars]
-                log.warning(
-                    "EMBED_OVERSIZE (capa 2) modelo='%s': chunk de %d chars superó el contexto. "
-                    "Truncando a %d chars y reintentando. Preview: %s",
-                    m, len(t), len(truncated), t[:80].replace('\n', ' ')
-                )
-                return client.embeddings(model=m, prompt=truncated)["embedding"]
-            raise
-
-    try:
-        return _call(text, model)
-    except Exception:
-        if model != "nomic-embed-text":
-            log.warning(
-                "Modelo '%s' no disponible para embedding; usando nomic-embed-text como fallback.",
-                model,
-            )
-            return _call(text, "nomic-embed-text")
-        raise
+    from app.indexing_pipeline.unified_embedder import embed_single
+    return embed_single(text, model)
 
 
 class IngestRouter:

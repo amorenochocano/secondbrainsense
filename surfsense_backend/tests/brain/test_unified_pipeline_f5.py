@@ -422,6 +422,15 @@ class TestHybridSearchDispatch:
         mock.assert_called_once_with("test")
         assert len(result) == 768
 
+    def test_ingest_router_embed_delega_a_unified_embedder(self):
+        """IngestRouter._embed() delega a unified_embedder.embed_single()."""
+        with patch("app.indexing_pipeline.unified_embedder.embed_single", return_value=[0.1] * 768) as mock:
+            from app.brain.ingest_router import _embed
+            result = _embed("test text", "nomic-embed-text")
+
+        mock.assert_called_once_with("test text", "nomic-embed-text")
+        assert len(result) == 768
+
 
 # ===========================================================================
 # TestFallbacks — fallback cuando pipeline Brain falla

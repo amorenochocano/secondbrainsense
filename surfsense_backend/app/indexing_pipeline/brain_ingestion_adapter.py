@@ -111,8 +111,7 @@ _CATEGORY_B_MAP: dict[str, str] = {
     DocumentType.CONFLUENCE_CONNECTOR:  ".confluence",
     DocumentType.JIRA_CONNECTOR:        ".jira_ticket",
     DocumentType.GITHUB_CONNECTOR:      ".github_file",
-    DocumentType.WEBCRAWLER_CONNECTOR:  ".html",
-    DocumentType.CRAWLED_URL:           ".html",
+    DocumentType.CRAWLED_URL:           ".html",    # Webcrawler produce CRAWLED_URL
 }
 
 # Tipos efímeros: SÍ se indexan en Qdrant knowledge (para buscar mensajes/emails)
@@ -627,6 +626,7 @@ async def _embed_and_upsert(
 
     search_space_id = str(connector_doc.search_space_id)
     source_slug = _build_source_slug(document, connector_doc)
+    category = _categorize(document, connector_doc)
 
     logger.debug(
         "[brain_adapter] embed+upsert doc=%d source=%s chunks=%d space=%s model=%s",
@@ -638,22 +638,24 @@ async def _embed_and_upsert(
         mgr = QdrantManager.get_instance()
         router = IngestRouter(qdrant_client=mgr.client)
 
-        # Construir md_content mínimo para IngestRouter
-        # (no necesita ser un pasaporte completo — solo los chunks van a knowledge)
-        md_content = f"# {connector_doc.title}\n\n" + "\n\n".join(chunk_texts[:3])
-
+        # F5 FIX: Llamar a _ingest_knowledge_raw() en vez de route().
+        # route() siempre añade 'brain' al scope (línea ~126 de ingest_router.py:
+        # "if BRAIN not in scope: scope = [BRAIN] + list(scope)").
+        # Los chunks de ingesta solo deben ir a 'knowledge' — el pasaporte
+        # va a 'brain' posteriormente en _synthesize_passport().
+        # Usar route() aquí causaría duplicación en la colección brain.
         await asyncio.to_thread(
-            router.route,
-            md_content=md_content,
-            blocks=blocks,
+            router._ingest_knowledge_raw,
+            text_blocks=blocks,
             source=source_slug,
-            search_space_id=search_space_id,
+            meta={},
             ingest_metadata={
                 "title":     connector_doc.title,
                 "doc_id":    str(document.id),
                 "unique_id": connector_doc.unique_id,
-                "category":  _categorize(document, connector_doc),
+                "category":  category,
             },
+            search_space_id=search_space_id,
         )
         logger.info(
             "[brain_adapter] Qdrant upsert OK doc=%d source=%s chunks=%d",
