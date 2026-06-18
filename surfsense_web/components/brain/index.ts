@@ -12,3 +12,4 @@ export { DomainBadge } from "./DomainBadge";
 export { BrainBreadcrumb } from "./BrainBreadcrumb";
 export { PassportCard } from "./PassportCard";
 export { IngestPhaseLog } from "./IngestPhaseLog";
+export { ChipArrayInput } from "./ChipArrayInput";
