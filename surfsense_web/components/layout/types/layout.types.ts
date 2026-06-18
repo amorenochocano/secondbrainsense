@@ -23,6 +23,12 @@ export interface NavItem {
 	isActive?: boolean;
 	badge?: string | number;
 	statusIndicator?: DocumentsProcessingStatus;
+	/**
+	 * Cuando es `true` el item se renderiza como cabecera de sección
+	 * (separador visual + label) en lugar de como botón de navegación.
+	 * No genera acción de click — solo visual.
+	 */
+	isSectionHeader?: boolean;
 }
 
 export interface ChatItem {

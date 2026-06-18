@@ -135,4 +135,25 @@ export const cacheKeys = {
 		modelEligibility: (searchSpaceId: number) =>
 			["automations", "model-eligibility", searchSpaceId] as const,
 	},
+	// ── SecondBrainSense ─────────────────────────────────────────────────────
+	brain: {
+		/** Stats de colecciones Qdrant + última ingesta */
+		stats:          (searchSpaceId: number) => ["brain", "stats", searchSpaceId] as const,
+		/** Estado de servicios dependientes (Qdrant, Ollama, PostgreSQL) */
+		health:         ()                       => ["brain", "health"] as const,
+		/** Distribución de niveles de respuesta en las últimas 24h */
+		levelUsage:     (searchSpaceId: number) => ["brain", "level-usage", searchSpaceId] as const,
+		/** Lista de pasaportes con metadata */
+		list:           (searchSpaceId: number) => ["brain", "list", searchSpaceId] as const,
+		/** Grafo de conocimiento (nodos + aristas) */
+		graph:          (searchSpaceId: number) => ["brain", "graph", searchSpaceId] as const,
+		/** Contenido + metadata de un pasaporte concreto */
+		passport:       (source: string, searchSpaceId: number) => ["brain", "passport", source, searchSpaceId] as const,
+		/** Historial de versiones de un pasaporte */
+		passportHistory:(source: string, searchSpaceId: number) => ["brain", "passport", "history", source, searchSpaceId] as const,
+		/** Modelos Ollama disponibles */
+		ollamaModels:   ()                       => ["brain", "ollama-models"] as const,
+		/** Configuración activa del admin Brain */
+		adminConfig:    ()                       => ["brain", "admin-config"] as const,
+	},
 };

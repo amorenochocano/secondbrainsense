@@ -2,7 +2,25 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { AlertTriangle, Inbox, LibraryBig, Workflow } from "lucide-react";
+import {
+	AlertTriangle,
+	BarChart2,
+	BookMarked,
+	BookOpen,
+	Brain,
+	Inbox,
+	LayoutDashboard,
+	LibraryBig,
+	MessageCircle,
+	Network,
+	Settings2,
+	Upload,
+	Workflow,
+} from "lucide-react";
+import { BRAIN_ROUTES } from "@/lib/brain/constants";
+import { brainLogger } from "@/lib/brain/logger";
+
+const log = brainLogger("LayoutDataProvider");
 import { useParams, usePathname, useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useTheme } from "next-themes";
@@ -324,10 +342,15 @@ export function LayoutDataProvider({ searchSpaceId, children }: LayoutDataProvid
 	}, [threadsData, searchSpaceId]);
 
 	// Navigation items
-	// Inbox, Automations, and Documents are rendered explicitly below "New chat"
-	// in the sidebar (also surfaced in the icon rail's collapsed mode via this
-	// list). Announcements has been moved to the avatar dropdown.
+	// Inbox, Automations, y Documents se renderizan explícitamente bajo "New chat".
+	// La sección SecondBrainSense se añade al final del sidebar como grupo independiente.
 	const isAutomationsActive = pathname?.includes("/automations") === true;
+
+	// Detecta si la ruta activa está dentro de /brain/ para marcar el grupo como activo
+	const isBrainSectionActive = pathname?.includes("/brain/") === true;
+
+	log.debug("Construyendo navItems", { searchSpaceId, isBrainSectionActive });
+
 	const navItems: NavItem[] = useMemo(
 		() =>
 			(
@@ -353,6 +376,15 @@ export function LayoutDataProvider({ searchSpaceId, children }: LayoutDataProvid
 								isActive: isDocumentsSidebarOpen,
 							}
 						: null,
+					// ── SecondBrainSense ──────────────────────────────────				// Cabecera de sección: separador visual + label en el sidebar
+				{ title: "SecondBrainSense", icon: Brain, url: BRAIN_ROUTES.HOME(searchSpaceId), isSectionHeader: true },					{ title: "Home",     icon: LayoutDashboard, url: BRAIN_ROUTES.HOME(searchSpaceId),       isActive: pathname?.endsWith("/brain/home") },
+					{ title: "Chat",     icon: MessageCircle,   url: BRAIN_ROUTES.CHAT(searchSpaceId),       isActive: pathname?.includes("/brain/chat") },
+					{ title: "Wiki",     icon: BookOpen,        url: BRAIN_ROUTES.WIKI(searchSpaceId),       isActive: pathname?.includes("/brain/wiki") },
+					{ title: "Grafo",    icon: Network,         url: BRAIN_ROUTES.GRAPH(searchSpaceId),      isActive: pathname?.includes("/brain/graph") },
+					{ title: "Ingestar", icon: Upload,          url: BRAIN_ROUTES.INGEST(searchSpaceId),     isActive: pathname?.includes("/brain/ingest") },
+					{ title: "Métricas", icon: BarChart2,       url: BRAIN_ROUTES.METRICS(searchSpaceId),    isActive: pathname?.includes("/brain/metrics") },
+					{ title: "Admin",    icon: Settings2,       url: BRAIN_ROUTES.ADMIN(searchSpaceId),      isActive: pathname?.includes("/brain/admin") },
+					{ title: "Maestros", icon: BookMarked,      url: BRAIN_ROUTES.VOCABULARY(searchSpaceId), isActive: pathname?.includes("/brain/vocabulary") },
 				] as (NavItem | null)[]
 			).filter((item): item is NavItem => item !== null),
 		[
@@ -362,6 +394,8 @@ export function LayoutDataProvider({ searchSpaceId, children }: LayoutDataProvid
 			totalUnreadCount,
 			searchSpaceId,
 			isAutomationsActive,
+			isBrainSectionActive,
+			pathname,
 		]
 	);
 

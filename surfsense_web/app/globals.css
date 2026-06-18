@@ -183,6 +183,56 @@ button {
 	cursor: pointer;
 }
 
+/* ─────────────────────────────────────────────────────────────────
+   SecondBrainSense — Design Tokens
+   Fuente: paleta dark del Second Brain original (app.py)
+   Todos los valores son WCAG AA o superior.
+   Se añaden como variables CSS sin sobreescribir las variables
+   globales de shadcn/ui — coexisten bajo el mismo .dark selector.
+   ───────────────────────────────────────────────────────────────── */
+.dark {
+	/* ── Fondos Brain (3 niveles de profundidad) ── */
+	--brain-bg-deep:    #0e1117;   /* fondo de página principal */
+	--brain-bg-surface: #161b27;   /* tarjetas y contenedores */
+	--brain-bg-overlay: #1c2133;   /* controles interactivos, inputs */
+	--brain-bg-border:  #2c3152;   /* bordes suaves */
+
+	/* ── Texto Brain (jerarquía WCAG AA garantizada) ── */
+	--brain-text-hi:    #eaecf4;   /* texto principal      ~13:1 */
+	--brain-text-mid:   #b4b9d4;   /* texto secundario     ~8:1  */
+	--brain-text-lo:    #7880a8;   /* captions/labels      ~4.5:1 */
+	--brain-text-faint: #4a5280;   /* SOLO decorativo — no usar para texto legible */
+
+	/* ── Acento Brain ── */
+	--brain-accent:      #a78bfa;  /* púrpura violeta — identidad SecondBrainSense */
+	--brain-accent-glow: #4c1d95;  /* glow / fondo de badges acento */
+	--brain-accent-dim:  #7c5cbf;  /* hover / active */
+
+	/* ── Semáforo de score RAG ── */
+	--brain-score-high:   #34d399;  /* score >0.70 — alta relevancia */
+	--brain-score-medium: #fbbf24;  /* score 0.55-0.70 — relevancia media */
+	--brain-score-low:    #f87171;  /* score <0.55 — baja relevancia */
+
+	/* ── Dominios de conocimiento (canal RGB para Tailwind) ── */
+	--brain-domain-engineering: 139 92 246;     /* #8b5cf6 violeta */
+	--brain-domain-data:        251 146 60;     /* #fb923c naranja */
+	--brain-domain-business:    56 189 248;     /* #38bdf8 azul cielo */
+	--brain-domain-functional:  74 222 128;     /* #4ade80 verde */
+	--brain-domain-legal:       248 113 113;    /* #f87171 rojo */
+
+	/* ── Niveles de retrieval (canal RGB para Tailwind) ── */
+	--brain-level-l1:     139 92 246;   /* L1 Brain     — violeta */
+	--brain-level-l2:      59 130 246;  /* L2 Knowledge — azul */
+	--brain-level-bm25:   234 179 8;    /* L2.b BM25    — amarillo */
+	--brain-level-web:     34 197 94;   /* L2.c Web     — verde */
+	--brain-level-l0:     107 114 128;  /* L0 LLM libre — gris */
+
+	/* ── Scopes de indexación ── */
+	--brain-scope-brain:     #a78bfa;  /* colección brain */
+	--brain-scope-knowledge: #60a5fa;  /* colección knowledge */
+	--brain-scope-code:      #34d399;  /* colección code */
+}
+
 /* Custom scrollbar styles */
 .scrollbar-thin {
 	scrollbar-width: thin;

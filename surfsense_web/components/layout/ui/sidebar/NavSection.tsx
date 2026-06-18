@@ -139,6 +139,30 @@ export function NavSection({ items, onItemClick, isCollapsed = false }: NavSecti
 	return (
 		<div className="flex flex-col gap-0.5 py-2">
 			{items.map((item) => {
+				// ── Cabecera de sección (separador visual + label) ──────────
+				if (item.isSectionHeader) {
+					const Icon = item.icon;
+					return (
+						<div key={item.url} className="px-2 pt-3 pb-1">
+							{/* Separador superior */}
+							<div className="border-t border-border mb-2" />
+							{/* Label de sección — oculto cuando el sidebar está colapsado */}
+							{!isCollapsed && (
+								<div className="flex items-center gap-1.5 px-1">
+									<Icon
+										className="h-3 w-3 shrink-0 text-violet-400"
+										aria-hidden
+									/>
+									<span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70 select-none">
+										{item.title}
+									</span>
+								</div>
+							)}
+						</div>
+					);
+				}
+
+				// ── Item de navegación estándar ──────────────────────────────
 				const { tooltip } = getStatusInfo(item.statusIndicator);
 
 				return (
