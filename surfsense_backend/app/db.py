@@ -1423,6 +1423,10 @@ class Document(BaseModel, TimestampMixin):
     # See migration 133.
     content_hash = Column(String, nullable=False, index=True)
     unique_identifier_hash = Column(String, nullable=True, index=True, unique=True)
+    # F5.6 — DEPRECATED: esta columna será eliminada por la migración 162.
+    # Tras F5, el summary embedding del documento ya no se almacena en PostgreSQL.
+    # Los vectores están en Qdrant (colección knowledge y brain).
+    # Ver: alembic/versions/162_remove_pgvector_embeddings.py
     embedding = Column(Vector(config.embedding_model_instance.dimension))
 
     # BlockNote live editing state (NULL when never edited)
@@ -1551,6 +1555,12 @@ class Chunk(BaseModel, TimestampMixin):
     __tablename__ = "chunks"
 
     content = Column(Text, nullable=False)
+    # F5.6 — DEPRECATED: esta columna será eliminada por la migración 162.
+    # Tras F5, los embeddings se almacenan en Qdrant (nomic-embed-text 768d).
+    # La columna se mantiene temporalmente para el fallback SurfSense
+    # (BRAIN_INGESTION_ENABLED=false). Tras ejecutar la migración 162,
+    # el fallback deja de funcionar y el pipeline Brain es obligatorio.
+    # Ver: alembic/versions/162_remove_pgvector_embeddings.py
     embedding = Column(Vector(config.embedding_model_instance.dimension))
 
     document_id = Column(
