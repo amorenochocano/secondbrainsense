@@ -348,6 +348,11 @@ services:
         NEXT_PUBLIC_DEPLOYMENT_MODE: ${NEXT_PUBLIC_DEPLOYMENT_MODE:-self-hosted}
     ports:
       - "${FRONTEND_PORT:-3929}:3000"
+    environment:
+      # URL del backend para llamadas server-side (API routes, Zero query).
+      # Desde dentro del contenedor frontend, el backend se alcanza por nombre de servicio.
+      # NO usar NEXT_PUBLIC_FASTAPI_BACKEND_URL aquí — esa es la URL pública del navegador.
+      - FASTAPI_BACKEND_INTERNAL_URL=http://backend:8000
     env_file:
       - .env
     depends_on:
