@@ -12,6 +12,8 @@ El MCP (Model Context Protocol) es el estándar abierto para conectar LLMs con h
 
 El MCP server es un **contenedor ligero y separado** que actúa como proxy entre el protocolo MCP (JSON-RPC) y la API REST de BrainSense. No contiene lógica de negocio — solo traduce llamadas MCP a requests HTTP al backend FastAPI.
 
+**Nota F5:** La tool `search_knowledge` llama a `POST /api/v1/brain/query` que tras F5 consulta Qdrant (nomic-embed-text 768d) con chunks de alta calidad. El MCP server no cambia — la mejora es transparente al ser el backend el que gestiona el pipeline.
+
 **Requisitos completos:** ver `BRAINSENSE-MCP-REQUISITOS.md`
 
 ---
