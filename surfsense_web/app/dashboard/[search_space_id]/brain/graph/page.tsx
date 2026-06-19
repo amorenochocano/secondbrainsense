@@ -53,7 +53,7 @@ import {
   BRAIN_IMPORTANCE_MAX,
   BRAIN_ROUTES,
 } from "@/lib/brain/constants";
-import { CACHE_KEYS } from "@/lib/query-client/cache-keys";
+import { cacheKeys } from "@/lib/query-client/cache-keys";
 import type { BrainDomain, GraphEdgeType, GraphNode } from "@/contracts/types/brain.types";
 import { cn } from "@/lib/utils";
 
@@ -383,7 +383,7 @@ export default function BrainGraphPage() {
     isError,
     refetch,
   } = useQuery({
-    queryKey: CACHE_KEYS.brain.graph(searchSpaceId),
+    queryKey: cacheKeys.brain.graph(searchSpaceId),
     queryFn: () => brainApiService.getGraph(searchSpaceId),
     staleTime: 60_000,
   });

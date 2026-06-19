@@ -66,7 +66,7 @@ import {
   type WikiSortOption,
   type WikiViewMode,
 } from "@/lib/brain/constants";
-import { CACHE_KEYS } from "@/lib/query-client/cache-keys";
+import { cacheKeys } from "@/lib/query-client/cache-keys";
 import type { BrainDomain, PassportMetadata } from "@/contracts/types/brain.types";
 import { cn } from "@/lib/utils";
 
@@ -190,7 +190,7 @@ export default function BrainWikiPage() {
     isError,
     refetch,
   } = useQuery({
-    queryKey: CACHE_KEYS.brain.list(searchSpaceId),
+    queryKey: cacheKeys.brain.list(searchSpaceId),
     queryFn: () => brainApiService.listPassports(searchSpaceId),
     staleTime: 30_000,
   });
@@ -203,7 +203,7 @@ export default function BrainWikiPage() {
     onSuccess: (_, source) => {
       log.info("Pasaporte eliminado", { source });
       toast.success("Documento eliminado correctamente");
-      queryClient.invalidateQueries({ queryKey: CACHE_KEYS.brain.list(searchSpaceId) });
+      queryClient.invalidateQueries({ queryKey: cacheKeys.brain.list(searchSpaceId) });
       setDeleteSource(null);
     },
     onError: (err, source) => {

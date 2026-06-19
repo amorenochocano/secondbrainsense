@@ -47,7 +47,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { BrainBreadcrumb, ChipArrayInput } from "@/components/brain";
 import { brainApiService } from "@/lib/apis/brain-api.service";
 import { brainLogger } from "@/lib/brain/logger";
@@ -107,7 +107,6 @@ function ChipList({ chips, maxVisible = 4 }: { chips: string[]; maxVisible?: num
 // ─── TAB 1: Dominios ─────────────────────────────────────────────────────────
 
 function DomainsTab({ spaceId }: { spaceId: number }) {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
   const [editTarget, setEditTarget] = useState<BrainDomainRecord | null>(null);
   const [isNewOpen, setIsNewOpen] = useState(false);
@@ -134,7 +133,7 @@ function DomainsTab({ spaceId }: { spaceId: number }) {
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: vocabKeys.domains(spaceId) });
-      toast({ title: "Dominio creado" });
+      toast("Dominio creado");
       setIsNewOpen(false);
       setFormData({});
     },
@@ -145,7 +144,7 @@ function DomainsTab({ spaceId }: { spaceId: number }) {
     mutationFn: (id: number) => brainApiService.deleteDomain(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: vocabKeys.domains(spaceId) });
-      toast({ title: "Dominio eliminado" });
+      toast("Dominio eliminado");
     },
   });
 
@@ -287,7 +286,6 @@ function DomainsTab({ spaceId }: { spaceId: number }) {
 // ─── TAB 4: Vocabulario canónico ─────────────────────────────────────────────
 
 function VocabularyTab({ spaceId }: { spaceId: number }) {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
   const [searchQ, setSearchQ] = useState("");
   const [lookupTag, setLookupTag] = useState("");
@@ -318,7 +316,7 @@ function VocabularyTab({ spaceId }: { spaceId: number }) {
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: vocabKeys.vocabulary(spaceId) });
-      toast({ title: "Entrada creada" });
+      toast("Entrada creada");
       setIsNewOpen(false);
       setFormData({ canonical_tag: "", aliases: [] });
     },
@@ -329,7 +327,7 @@ function VocabularyTab({ spaceId }: { spaceId: number }) {
     mutationFn: (id: number) => brainApiService.deleteVocabularyEntry(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: vocabKeys.vocabulary(spaceId) });
-      toast({ title: "Entrada eliminada" });
+      toast("Entrada eliminada");
     },
   });
 
@@ -489,7 +487,6 @@ function VocabularyTab({ spaceId }: { spaceId: number }) {
 // ─── TAB genérico simplificado (Doc Types y Entity Hints) ─────────────────────
 
 function DocTypesTab({ spaceId }: { spaceId: number }) {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isNewOpen, setIsNewOpen] = useState(false);
   const [formData, setFormData] = useState<Partial<BrainDocTypeRecord>>({});
@@ -515,7 +512,7 @@ function DocTypesTab({ spaceId }: { spaceId: number }) {
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: vocabKeys.docTypes(spaceId) });
-      toast({ title: "Tipo de documento creado" });
+      toast("Tipo de documento creado");
       setIsNewOpen(false);
       setFormData({});
     },
@@ -618,7 +615,6 @@ function DocTypesTab({ spaceId }: { spaceId: number }) {
 // ─── TAB Entity Hints (expandible por fila) ────────────────────────────────────
 
 function EntityHintsTab({ spaceId }: { spaceId: number }) {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [isNewOpen, setIsNewOpen] = useState(false);
@@ -645,7 +641,7 @@ function EntityHintsTab({ spaceId }: { spaceId: number }) {
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: vocabKeys.entityHints(spaceId) });
-      toast({ title: "Entity hint creado" });
+      toast("Entity hint creado");
       setIsNewOpen(false);
       setFormData({});
     },

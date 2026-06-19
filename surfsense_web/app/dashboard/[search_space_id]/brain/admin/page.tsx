@@ -43,7 +43,7 @@ import {
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { BrainBreadcrumb } from "@/components/brain";
 import { brainApiService } from "@/lib/apis/brain-api.service";
 import { brainLogger } from "@/lib/brain/logger";
@@ -133,7 +133,6 @@ function NumberField({ label, value, min, max, step = 1, onChange, hint }: Numbe
 export default function BrainAdminPage() {
   const params = useParams<{ search_space_id: string }>();
   const spaceId = params.search_space_id;
-  const { toast } = useToast();
   const queryClient = useQueryClient();
 
   // ── Cargar configuración activa ─────────────────────────────────────────────
@@ -195,11 +194,11 @@ export default function BrainAdminPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: cacheKeys.brain.adminConfig() });
-      toast({ title: "Configuración guardada", description: "Los cambios se aplican inmediatamente." });
+      toast("Configuración guardada", { description: "Los cambios se aplican inmediatamente." });
     },
     onError: (err: Error) => {
       log.error("Error guardando configuración", { err });
-      toast({ variant: "destructive", title: "Error al guardar", description: err.message });
+      toast.error("Error al guardar", { description: err.message });
     },
   });
 

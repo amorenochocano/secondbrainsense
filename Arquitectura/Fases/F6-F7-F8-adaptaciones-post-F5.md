@@ -4,7 +4,7 @@ Este documento describe los cambios necesarios en F6, F7 y F8 como consecuencia 
 
 ---
 
-## F6 — UI Integrada: cambios necesarios
+    ## F6 — UI Integrada: cambios necesarios
 
 ### F6.5 — Brain Chat
 **Cambio:** El Brain Chat y el chat SurfSense ahora comparten el mismo backend de vectores (Qdrant). La distinción ya no es "pgvector vs Qdrant" sino "cascada multinivel F4 vs búsqueda directa".

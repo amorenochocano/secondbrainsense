@@ -70,7 +70,7 @@ import {
   BRAIN_ROUTES,
   BRAIN_SCOPE_COLORS,
 } from "@/lib/brain/constants";
-import { CACHE_KEYS } from "@/lib/query-client/cache-keys";
+import { cacheKeys } from "@/lib/query-client/cache-keys";
 import type { BrainScope } from "@/contracts/types/brain.types";
 import { cn } from "@/lib/utils";
 
@@ -161,7 +161,7 @@ function VersionHistory({
   const [expandedVersion, setExpandedVersion] = useState<string | null>(null);
 
   const { data: history = [], isLoading } = useQuery({
-    queryKey: CACHE_KEYS.brain.passportHistory(source, searchSpaceId),
+    queryKey: cacheKeys.brain.passportHistory(source, searchSpaceId),
     queryFn: () => brainApiService.getPassportHistory(source, searchSpaceId),
     enabled: isOpen, // Solo carga cuando está abierto
     staleTime: 60_000,
@@ -280,7 +280,7 @@ export default function BrainWikiDetailPage() {
     isLoading,
     isError,
   } = useQuery({
-    queryKey: CACHE_KEYS.brain.passport(source, searchSpaceId),
+    queryKey: cacheKeys.brain.passport(source, searchSpaceId),
     queryFn: () => brainApiService.getPassport(source, searchSpaceId),
     staleTime: 30_000,
   });
@@ -303,10 +303,10 @@ export default function BrainWikiDetailPage() {
       log.info("Pasaporte guardado", { source });
       toast.success("Pasaporte guardado correctamente");
       queryClient.invalidateQueries({
-        queryKey: CACHE_KEYS.brain.passport(source, searchSpaceId),
+        queryKey: cacheKeys.brain.passport(source, searchSpaceId),
       });
       queryClient.invalidateQueries({
-        queryKey: CACHE_KEYS.brain.passportHistory(source, searchSpaceId),
+        queryKey: cacheKeys.brain.passportHistory(source, searchSpaceId),
       });
       setIsEditing(false);
     },
@@ -335,7 +335,7 @@ export default function BrainWikiDetailPage() {
       log.warn("Pasaporte eliminado", { source });
       toast.success("Documento eliminado");
       queryClient.invalidateQueries({
-        queryKey: CACHE_KEYS.brain.list(searchSpaceId),
+        queryKey: cacheKeys.brain.list(searchSpaceId),
       });
       router.push(BRAIN_ROUTES.WIKI(params.search_space_id));
     },

@@ -49,7 +49,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 import { BrainBreadcrumb, DomainBadge, IngestPhaseLog } from "@/components/brain";
 import { brainApiService } from "@/lib/apis/brain-api.service";
 import { brainLogger } from "@/lib/brain/logger";
@@ -384,7 +384,6 @@ export default function BrainIngestPage() {
   const params = useParams<{ search_space_id: string }>();
   const spaceId = params.search_space_id;
   const router = useRouter();
-  const { toast } = useToast();
 
   // â”€â”€ Estado del formulario de ingesta â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [url, setUrl]                 = useState("");
@@ -417,19 +416,14 @@ export default function BrainIngestPage() {
       setIngestDone(false);
 
       if (response.background) {
-        toast({
-          title: "Ingesta en segundo plano",
+        toast("Ingesta en segundo plano", {
           description: "El documento es grande. Puedes continuar usando Brain mientras se procesa.",
         });
       }
     },
     onError: (err: Error) => {
       log.error("Error al iniciar la ingesta", { err });
-      toast({
-        variant: "destructive",
-        title: "Error al iniciar la ingesta",
-        description: err.message,
-      });
+      toast.error("Error al iniciar la ingesta", { description: err.message });
     },
   });
 
@@ -438,9 +432,8 @@ export default function BrainIngestPage() {
     setIsIngesting(false);
     setIngestDone(true);
     log.info("Pipeline completado, invalidar lista de documentos");
-    toast({
-      title: "Ingesta completada",
-      description: "El documento ha sido procesado y estÃ¡ disponible en el Brain.",
+    toast("Ingesta completada", {
+      description: "El documento ha sido procesado y está disponible en el Brain.",
     });
   }, [toast]);
 
@@ -448,11 +441,7 @@ export default function BrainIngestPage() {
     (err: Error) => {
       setIsIngesting(false);
       log.error("Error en pipeline SSE", { err });
-      toast({
-        variant: "destructive",
-        title: "Error en el pipeline",
-        description: err.message,
-      });
+      toast.error("Error en el pipeline", { description: err.message });
     },
     [toast],
   );

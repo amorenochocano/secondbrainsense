@@ -460,3 +460,5 @@ export default function BrainHomePage({ params }: BrainHomePageProps) {
       </section>
 
     </div>
+  );
+}

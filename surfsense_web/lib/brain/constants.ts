@@ -255,14 +255,6 @@ export const BRAIN_INGEST_BACKGROUND_THRESHOLD_BYTES = 50 * 1024; // 50 KB
 export const BRAIN_INGEST_HISTORY_LIMIT = 10;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Admin CRAG — límites de configuración UI
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const BRAIN_CRAG_TIMEOUT_MIN = 5;
-export const BRAIN_CRAG_TIMEOUT_MAX = 30;
-export const BRAIN_CRAG_TIMEOUT_DEFAULT = 15;
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Wiki semántica — opciones de UI
 // ─────────────────────────────────────────────────────────────────────────────
 
