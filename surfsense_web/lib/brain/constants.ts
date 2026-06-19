@@ -343,23 +343,36 @@ export const BRAIN_INGEST_PHASES = [
 export type IngestPhaseKey = (typeof BRAIN_INGEST_PHASES)[number]["key"];
 
 /**
- * Categorías del pipeline F5 unificado.
- * A = extractor especializado, B = limpieza avanzada, C = genérico.
+ * Categorías del pipeline F5 unificado (brain_ingestion_adapter.py).
+ * La clave interna (A/B/C) es del backend — nunca mostrarla en la UI.
+ *
+ *  A = Extracción especializada — fichero con extractor dedicado (PDF, Word, código…)
+ *  B = Conector inteligente     — conector con parsing estructural (Confluence, Jira, GitHub, Web)
+ *  C = Procesamiento estándar   — pipeline genérico (Slack, Gmail, Calendar, Notion…)
+ *
+ * Los tres terminan en el mismo Qdrant con el mismo modelo de embedding.
+ * La diferencia es solo el nivel de detalle estructural antes de vectorizar.
  */
 export const BRAIN_INGEST_CATEGORIES = {
   A: {
-    label: "Categoría A",
-    desc: "Extractor especializado + síntesis completa",
+    label: "Extracción especializada",
+    shortLabel: "Extracción esp.",
+    desc: "Fichero procesado con extractor dedicado · PDF · Word · Excel · código…",
+    tooltip: "Fichero con extractor nativo para su formato. El pipeline parsea la estructura interna (headings, tablas, AST) y genera pasaporte completo.",
     classes: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
   },
   B: {
-    label: "Categoría B",
-    desc: "Limpieza avanzada + chunking semántico",
+    label: "Conector inteligente",
+    shortLabel: "Conector intel.",
+    desc: "Contenido de conector con parsing estructural · Confluence · Jira · GitHub · Web",
+    tooltip: "Conector API con extractor específico. El pipeline entiende la estructura del conector (secciones de Confluence, campos de Jira, commits de GitHub).",
     classes: "bg-yellow-500/10 text-yellow-300 border-yellow-500/30",
   },
   C: {
-    label: "Categoría C",
-    desc: "Pipeline genérico (página web / texto sin extractor)",
+    label: "Procesamiento estándar",
+    shortLabel: "Est. estándar",
+    desc: "Contenido limpiado y chunkeado con pipeline genérico · Slack · Gmail · notas…",
+    tooltip: "Pipeline universal: UniversalCleaner + chunking semántico. Mismo embedding y calidad de limpieza que A/B; sin extracción estructural especializada.",
     classes: "bg-blue-500/10 text-blue-300 border-blue-500/30",
   },
 } as const;
@@ -368,13 +381,21 @@ export type IngestCategory = keyof typeof BRAIN_INGEST_CATEGORIES;
 
 /**
  * Mapeo de extensión de fichero a categoría del pipeline F5.
- * Extensiones sin entrada → Categoría C (genérico).
+ * TODOS los ficheros subidos con extensión soportada → Categoría A.
+ * Sin extensión reconocida en la UI → mostrar C (el backend decide en runtime).
+ * Conectores (Confluence, Jira, GitHub) → siempre B (sin extensión de fichero).
  */
 export const BRAIN_INGEST_EXTENSION_CATEGORY: Record<string, IngestCategory> = {
+  // Categoría A — archivos subidos con extractor nativo
   ".py":    "A", ".sql":   "A", ".ipynb": "A",
-  ".json":  "A", ".xml":   "A",
-  ".md":    "B", ".drawio": "B", ".xlsx":  "B",
-  ".pdf":   "B", ".docx":  "B", ".pptx":  "B",
+  ".json":  "A", ".xml":   "A", ".csv":   "A",
+  ".txt":   "A", ".md":    "A", ".markdown": "A",
+  ".pdf":   "A", ".docx":  "A", ".doc":   "A",
+  ".pptx":  "A", ".ppt":   "A", ".xlsx":  "A",
+  ".xls":   "A", ".drawio": "A",
+  // Categoría B — conectores con extractor virtual (identificados por URL/tipo, no extensión)
+  ".html":  "B", ".htm":   "B",
+  // Sin extensión o extensión desconocida → C en la UI (el backend puede diferir)
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

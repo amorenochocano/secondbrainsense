@@ -20,6 +20,7 @@ import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import {
   Brain, Database, Code2, TrendingUp, FileText, BarChart3, Layers, Loader2,
+  Microscope, Link, FileUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { BrainBreadcrumb, DomainBadge, LevelBadge } from "@/components/brain";
@@ -140,6 +141,13 @@ function LevelBar({ levelKey, count, maxCount }: LevelBarProps) {
     </div>
   );
 }
+
+// Ícono por tipo de pipeline
+const CATEGORY_ICON_METRICS = {
+  A: Microscope,
+  B: Link,
+  C: FileUp,
+} as const satisfies Record<IngestCategory, React.ElementType>;
 
 // ─── Página principal ─────────────────────────────────────────────────────────
 
@@ -326,11 +334,12 @@ export default function BrainMetricsPage() {
                           <div className="flex items-center gap-2">
                             <span
                               className={cn(
-                                "inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold",
+                                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold",
                                 cfg.classes,
                               )}
                             >
-                              Cat. {cat}
+                              {(() => { const Icon = CATEGORY_ICON_METRICS[cat]; return <Icon className="h-3 w-3 shrink-0" aria-hidden />; })()}
+                              {cfg.label}
                             </span>
                             <span className="text-xs text-slate-400 hidden sm:inline">{cfg.desc}</span>
                           </div>
