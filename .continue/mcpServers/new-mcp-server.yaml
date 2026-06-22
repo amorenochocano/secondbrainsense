@@ -1,0 +1,8 @@
+mcpServers:
+  - name: filesystem
+    command: npx
+    args:
+      - -y
+      - "@modelcontextprotocol/server-filesystem"
+      - "C:\Users\EN31380\OneDrive - Enagás, S.A\Documentos\Mis_proyectos"
+      
