@@ -1048,6 +1048,89 @@ app.include_router(brain_router)
 # (prefijo definido dentro del router, no aquí)
 
 
+_health_logger = logging.getLogger("surfsense.brain.health")
+
+# F6.B.01 — Health check enriquecido para la UI Brain.
+# La UI llama a /api/v1/health (no al /health del docker healthcheck).
+# Comprueba: Qdrant · Ollama · PostgreSQL · Redis.
+# No requiere autenticación — permite que la UI muestre el estado antes del login.
+@app.get("/api/v1/health", tags=["health"])
+@limiter.exempt
+async def brain_health_v1(db: AsyncSession = Depends(get_async_session)):
+    """
+    Health check enriquecido que verifica todos los servicios de infraestructura.
+
+    Devuelve el estado individual de cada servicio:
+      - ``ok``      → servicio responde correctamente.
+      - ``degraded``→ responde pero con advertencias (p. ej. Ollama sin modelos).
+      - ``error``   → servicio no disponible.
+
+    No lanza HTTP 5xx aunque algún servicio falle; devuelve 200 con el detalle
+    para que la UI pueda mostrar el estado parcial sin bloquear la interfaz.
+
+    Este endpoint es distinto del ``/health`` del docker healthcheck (liveness
+    probe ligero). No tocar el ``/health`` original.
+    """
+    import httpx as _httpx
+    from sqlalchemy import text as _text
+
+    from app.brain.qdrant_manager import QdrantManager
+
+    status: dict[str, str] = {}
+
+    # ── Qdrant ────────────────────────────────────────────────────────────────
+    def _check_qdrant() -> str:
+        try:
+            QdrantManager.get_instance().client.get_collections()
+            return "ok"
+        except Exception as exc:
+            _health_logger.warning("[health] Qdrant no disponible: %s", exc)
+            return "error"
+
+    status["qdrant"] = await asyncio.to_thread(_check_qdrant)
+
+    # ── Ollama ────────────────────────────────────────────────────────────────
+    ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+    try:
+        async with _httpx.AsyncClient(timeout=3.0) as client:
+            r = await client.get(f"{ollama_host}/api/tags")
+            if r.status_code == 200:
+                models = r.json().get("models", [])
+                status["ollama"] = "ok" if models else "degraded"
+                if not models:
+                    _health_logger.warning("[health] Ollama responde pero sin modelos cargados")
+            else:
+                _health_logger.warning("[health] Ollama status_code=%d", r.status_code)
+                status["ollama"] = "degraded"
+    except Exception as exc:
+        _health_logger.warning("[health] Ollama no disponible: %s", exc)
+        status["ollama"] = "error"
+
+    # ── PostgreSQL ────────────────────────────────────────────────────────────
+    try:
+        await db.execute(_text("SELECT 1"))
+        status["postgresql"] = "ok"
+    except Exception as exc:
+        _health_logger.error("[health] PostgreSQL no disponible: %s", exc)
+        status["postgresql"] = "error"
+
+    # ── Redis ─────────────────────────────────────────────────────────────────
+    redis_url = os.getenv("REDIS_APP_URL", "redis://redis:6379/0")
+
+    def _check_redis() -> str:
+        try:
+            redis.from_url(redis_url, socket_timeout=2).ping()
+            return "ok"
+        except Exception as exc:
+            _health_logger.warning("[health] Redis no disponible: %s", exc)
+            return "degraded"
+
+    status["redis"] = await asyncio.to_thread(_check_redis)
+
+    _health_logger.debug("[health] resultado: %s", status)
+    return status
+
+
 @app.get("/health", tags=["health"])
 @limiter.exempt
 async def health_check():

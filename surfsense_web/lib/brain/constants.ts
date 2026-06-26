@@ -84,24 +84,38 @@ export const BRAIN_ROUTES = {
 // Niveles de retrieval
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Identificadores numéricos de nivel de retrieval */
+/**
+ * Identificadores numéricos de nivel de retrieval.
+ *
+ * Cascada: L1 → L2 Hybrid → Web → L0
+ *
+ *   L1  : pasaportes semánticos Qdrant (colección 'brain')
+ *   L2  : recuperación HÍBRIDA — Qdrant (knowledge/code) + BM25 PostgreSQL,
+ *          fusionados con RRF (Reciprocal Rank Fusion, k=60). BM25 ya no es
+ *          un nivel separado: está integrado como copiloto de L2.
+ *   WEB : búsqueda SearXNG en tiempo real (fallback cuando L1+L2 vacíos)
+ *   L0  : LLM libre sin retrieval (último recurso paramétrico)
+ *
+ * El valor numérico 3 (BM25 independiente) queda reservado por compatibilidad
+ * pero el backend ya no lo emite: BM25 está integrado en L2.
+ */
 export const BRAIN_LEVELS = {
-  L1:   1,  // Brain — pasaportes (colección brain)
-  L2:   2,  // Knowledge semántico (colección knowledge)
-  BM25: 3,  // BM25 léxico (PostgreSQL tsvector)
-  WEB:  4,  // Búsqueda web (SearXNG)
-  L0:   0,  // LLM libre (sin retrieval)
+  L1:  1,  // Brain       — pasaportes semánticos (Qdrant 'brain')
+  L2:  2,  // Knowledge   — hybrid Qdrant (knowledge/code) + BM25, fusión RRF
+  WEB: 4,  // Web         — búsqueda SearXNG en tiempo real
+  L0:  0,  // LLM libre   — conocimiento paramétrico sin retrieval
 } as const;
 
 export type BrainLevel = (typeof BRAIN_LEVELS)[keyof typeof BRAIN_LEVELS];
 
 /** Configuración visual de cada nivel (label + clases Tailwind) */
-export const BRAIN_LEVEL_CONFIG: Record<BrainLevel, { label: string; classes: string }> = {
-  [BRAIN_LEVELS.L1]:   { label: "🧠 Brain",     classes: "bg-violet-500/15 text-violet-300 border-violet-500/30" },
-  [BRAIN_LEVELS.L2]:   { label: "📚 Knowledge", classes: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
-  [BRAIN_LEVELS.BM25]: { label: "🔍 BM25",      classes: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30" },
-  [BRAIN_LEVELS.WEB]:  { label: "🌐 Web",       classes: "bg-green-500/15 text-green-300 border-green-500/30" },
-  [BRAIN_LEVELS.L0]:   { label: "🤖 LLM",       classes: "bg-muted text-muted-foreground border-border" },
+export const BRAIN_LEVEL_CONFIG: Record<number, { label: string; classes: string }> = {
+  [BRAIN_LEVELS.L1]:  { label: "🧠 Brain",           classes: "bg-violet-500/15 text-violet-300 border-violet-500/30" },
+  [BRAIN_LEVELS.L2]:  { label: "📚 Knowledge Hybrid", classes: "bg-blue-500/15 text-blue-300 border-blue-500/30" },
+  [BRAIN_LEVELS.WEB]: { label: "🌐 Web",              classes: "bg-green-500/15 text-green-300 border-green-500/30" },
+  [BRAIN_LEVELS.L0]:  { label: "🤖 LLM",              classes: "bg-muted text-muted-foreground border-border" },
+  // Nivel 3 reservado por compatibilidad (BM25 integrado en L2 desde v2)
+  3: { label: "🔍 BM25", classes: "bg-yellow-500/15 text-yellow-300 border-yellow-500/30" },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

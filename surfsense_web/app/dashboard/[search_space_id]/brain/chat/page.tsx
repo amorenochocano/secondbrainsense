@@ -5,7 +5,7 @@
  * @module app/dashboard/[search_space_id]/brain/chat
  *
  * Brain Chat — interfaz de conversación conectada a la cascada multinivel
- * L1→L2→BM25→Web→L0 del backend (brain_chat.py).
+ * L1 → L2 Hybrid (Qdrant+BM25 RRF) → Web → L0 del backend.
  *
  * Diferencia con el chat SurfSense: sin herramientas LangGraph.
  * Ofrece transparencia completa del nivel de retrieval + fuentes citadas.
@@ -104,7 +104,7 @@ function HintsScreen({ onHintClick }: { onHintClick: (text: string) => void }) {
           <h2 className="text-xl font-semibold">Brain Chat</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Consulta tu base de conocimiento con cascada multinivel
-            L1&nbsp;→&nbsp;L2&nbsp;→&nbsp;BM25&nbsp;→&nbsp;Web
+            L1&nbsp;→&nbsp;L2&nbsp;Hybrid&nbsp;(Qdrant+BM25)&nbsp;→&nbsp;Web
           </p>
         </div>
       </div>

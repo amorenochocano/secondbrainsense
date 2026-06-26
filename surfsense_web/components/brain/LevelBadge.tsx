@@ -6,11 +6,13 @@
  * Se usa en BrainChat y, opcionalmente, en el chat principal de SurfSense.
  *
  * Niveles:
- *   1 → Brain (pasaportes L1)
- *   2 → Knowledge (semántico L2)
- *   3 → BM25 (léxico L2.b)
- *   4 → Web (SearXNG L2.c)
- *   0 → LLM libre (sin retrieval)
+ *   1 → Brain      — pasaportes semánticos (Qdrant 'brain')
+ *   2 → Knowledge  — hybrid Qdrant (knowledge/code) + BM25, fusión RRF
+ *   4 → Web        — búsqueda SearXNG en tiempo real
+ *   0 → LLM libre  — conocimiento paramétrico sin retrieval
+ *
+ * Nota: el nivel 3 (BM25 independiente) ya no existe. BM25 está integrado
+ * en el hybrid L2 y no se reporta como nivel separado.
  */
 
 "use client";

@@ -312,7 +312,7 @@ export default function BrainAdminPage() {
                 value={draft.ROUTER_L1_MIN_SCORE ?? 0.45}
                 min={BRAIN_ROUTER_SCORE_MIN} max={BRAIN_ROUTER_SCORE_MAX} step={BRAIN_ROUTER_SCORE_STEP}
                 onChange={(v) => set("ROUTER_L1_MIN_SCORE", v)}
-                hint="por debajo → fallback a L2/BM25"
+                hint="por debajo → fallback a L2 Hybrid (Qdrant+BM25)"
               />
               <NumberField
                 label="Top K documentos"

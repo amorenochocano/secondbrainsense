@@ -8,7 +8,7 @@
  *
  * Diseño mejorado sobre el panel Streamlit original:
  * - Cards de colecciones con donut visual y ratio brain/total
- * - Distribución de niveles L1/L2/BM25/Web/L0 con barras proporcionales
+ * - Distribución de niveles L1 / L2 Hybrid / Web / L0 con barras proporcionales
  * - Categorías A/B/C inferidas del corpus de pasaportes
  * - Top 10 fuentes por importancia
  *

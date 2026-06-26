@@ -221,11 +221,11 @@ button {
 	--brain-domain-legal:       248 113 113;    /* #f87171 rojo */
 
 	/* ── Niveles de retrieval (canal RGB para Tailwind) ── */
-	--brain-level-l1:     139 92 246;   /* L1 Brain     — violeta */
-	--brain-level-l2:      59 130 246;  /* L2 Knowledge — azul */
-	--brain-level-bm25:   234 179 8;    /* L2.b BM25    — amarillo */
-	--brain-level-web:     34 197 94;   /* L2.c Web     — verde */
-	--brain-level-l0:     107 114 128;  /* L0 LLM libre — gris */
+	--brain-level-l1:     139 92 246;   /* L1 Brain     — violeta (pasaportes semánticos) */
+	--brain-level-l2:      59 130 246;  /* L2 Hybrid    — azul (Qdrant knowledge/code + BM25, RRF) */
+	--brain-level-bm25:   234 179 8;    /* reservado — BM25 integrado en L2 desde v2 */
+	--brain-level-web:     34 197 94;   /* Web          — verde (SearXNG, fallback L2 vacío) */
+	--brain-level-l0:     107 114 128;  /* L0 LLM libre — gris (paramétrico, último recurso) */
 
 	/* ── Scopes de indexación ── */
 	--brain-scope-brain:     #a78bfa;  /* colección brain */

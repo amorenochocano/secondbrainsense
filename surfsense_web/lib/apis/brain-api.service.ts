@@ -64,8 +64,8 @@ class BrainApiService {
 
   /**
    * Envía una pregunta al endpoint de cascada multinivel Brain.
-   * El backend ejecuta L1→L2→BM25→Web→L0 y devuelve la respuesta
-   * con el nivel usado y las fuentes citadas.
+   * El backend ejecuta L1 → L2 Hybrid (Qdrant+BM25 RRF) → Web → L0
+   * y devuelve la respuesta con el nivel usado y las fuentes citadas.
    */
   query = async (request: BrainQueryRequest): Promise<BrainQueryResponse> => {
     const parsed = brainQueryRequest.safeParse(request);
