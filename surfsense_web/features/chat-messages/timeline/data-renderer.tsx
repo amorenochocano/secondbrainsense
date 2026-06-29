@@ -1,6 +1,6 @@
 "use client";
 
-import { makeAssistantDataUI, useAuiState } from "@assistant-ui/react";
+import { makeAssistantDataUI, useAssistantDataUI, useAuiState } from "@assistant-ui/react";
 import { useMemo } from "react";
 import { PendingInterruptProvider, usePendingInterrupt } from "@/features/chat-messages/hitl";
 import { buildTimeline, type ThinkingStepInput } from "./build-timeline";
@@ -49,8 +49,12 @@ function TimelineDataRenderer({ data }: { name: string; data: unknown }) {
 	);
 }
 
-/** Registers under ``thinking-steps`` so consumers swap the import only. */
-export const TimelineDataUI = makeAssistantDataUI({
+const timelineDataUI = makeAssistantDataUI({
 	name: "thinking-steps",
 	render: TimelineDataRenderer,
 });
+
+export function TimelineDataUI() {
+	useAssistantDataUI(timelineDataUI);
+	return null;
+}

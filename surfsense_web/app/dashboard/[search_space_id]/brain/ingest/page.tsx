@@ -171,7 +171,7 @@ function RoutingPreviewPanel({ url, selectedModel }: RoutingPreviewPanelProps) {
 
   // Modelo recomendado segÃºn extensiÃ³n
   const recommended = BRAIN_MODEL_RECOMMENDATION.model;
-  const isRecommendedSelected = selectedModel === recommended || selectedModel === "";
+  const isRecommendedSelected = selectedModel === recommended || selectedModel === "auto";
 
   return (
     <div className="rounded-xl border border-slate-700/50 bg-slate-800/30 p-4 space-y-3">
@@ -387,7 +387,7 @@ export default function BrainIngestPage() {
 
   // â”€â”€ Estado del formulario de ingesta â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const [url, setUrl]                 = useState("");
-  const [selectedModel, setSelectedModel] = useState("");
+  const [selectedModel, setSelectedModel] = useState("auto");
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [isIngesting, setIsIngesting] = useState(false);
   const [ingestDone, setIngestDone]   = useState(false);
@@ -408,7 +408,7 @@ export default function BrainIngestPage() {
   // â”€â”€ MutaciÃ³n de ingesta â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const ingestMutation = useMutation({
     mutationFn: () =>
-      brainApiService.ingestUrl(url, Number(spaceId), selectedModel || undefined),
+      brainApiService.ingestUrl(url, Number(spaceId), selectedModel === "auto" ? undefined : selectedModel),
     onSuccess: (response) => {
       log.info("Job de ingesta creado", { jobId: response.job_id, background: response.background });
       setActiveJobId(response.job_id);
@@ -553,7 +553,7 @@ export default function BrainIngestPage() {
                     <SelectValue placeholder="Modelo automÃ¡tico (recomendado)" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">
+                    <SelectItem value="auto">
                       <span className="flex items-center gap-2">
                         <Sparkles className="h-3.5 w-3.5 text-violet-400" />
                         AutomÃ¡tico â€” {BRAIN_MODEL_RECOMMENDATION.model}

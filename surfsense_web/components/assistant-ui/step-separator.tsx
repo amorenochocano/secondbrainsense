@@ -1,6 +1,6 @@
 "use client";
 
-import { makeAssistantDataUI } from "@assistant-ui/react";
+import { makeAssistantDataUI, useAssistantDataUI } from "@assistant-ui/react";
 
 /**
  * Renders a thin horizontal divider between model steps within a single
@@ -21,7 +21,12 @@ function StepSeparatorDataRenderer() {
 	);
 }
 
-export const StepSeparatorDataUI = makeAssistantDataUI({
+const stepSeparatorDataUI = makeAssistantDataUI({
 	name: "step-separator",
 	render: StepSeparatorDataRenderer,
 });
+
+export function StepSeparatorDataUI() {
+	useAssistantDataUI(stepSeparatorDataUI);
+	return null;
+}

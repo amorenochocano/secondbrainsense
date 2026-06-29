@@ -539,6 +539,25 @@ _BRAIN_COLLECTIONS = [
 ]
 
 
+def _normalize_iso_datetime(value: str | None) -> str | None:
+    """Normaliza un timestamp a ISO 8601 con offset de timezone explícito.
+
+    El schema Zod del frontend (`z.string().datetime({ offset: true })`) exige
+    que el string lleve sufijo de zona (`Z` o `±HH:MM`). Si el valor leído
+    de Redis no lo trae (timestamps naïve), asumimos UTC.
+    """
+    if not value:
+        return None
+    try:
+        # fromisoformat acepta tanto 'Z' (3.11+) como offsets ±HH:MM
+        dt = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=datetime.timezone.utc)
+        return dt.isoformat()
+    except ValueError:
+        return None
+
+
 @router.get("/stats")
 async def brain_stats(
     search_space_id: int,
@@ -602,20 +621,20 @@ async def brain_stats(
                 dimension = getattr(vectors_cfg, "size", None) or 768
 
                 collections[col_name] = {
-                    "vectors":   info.points_count or 0,
+                    "count":     info.points_count or 0,
                     "sources":   unique_sources,
                     "dimension": dimension,
                 }
                 _stats_logger.debug(
-                    "[brain_stats] col=%s vectors=%d sources=%d dim=%d",
-                    col_name, collections[col_name]["vectors"],
+                    "[brain_stats] col=%s count=%d sources=%d dim=%d",
+                    col_name, collections[col_name]["count"],
                     unique_sources, dimension,
                 )
             except Exception as exc:
                 _stats_logger.warning(
                     "[brain_stats] No se pudo obtener stats de col=%s: %s", col_name, exc,
                 )
-                collections[col_name] = {"vectors": 0, "sources": 0, "dimension": 768}
+                collections[col_name] = {"count": 0, "sources": 0, "dimension": 768}
 
         return collections
 
@@ -637,7 +656,7 @@ async def brain_stats(
 
             li  = r.get(f"brain:last_ingest:space:{search_space_id}")
             lid = r.get(f"brain:last_ingest_doc:space:{search_space_id}")
-            last_ingest     = li.decode()  if li  else None
+            last_ingest     = _normalize_iso_datetime(li.decode())  if li  else None
             last_ingest_doc = lid.decode() if lid else None
 
         except Exception as exc:
@@ -663,9 +682,9 @@ async def brain_stats(
         "last_ingest_doc":  last_ingest_doc,
         "level_usage":      level_usage,
         # Shortcuts para que la UI no tenga que navegar el dict collections
-        "brain_count":      collections.get("brain",     {}).get("vectors", 0),
-        "knowledge_count":  collections.get("knowledge", {}).get("vectors", 0),
-        "code_count":       collections.get("code",      {}).get("vectors", 0),
+        "brain_count":      collections.get("brain",     {}).get("count", 0),
+        "knowledge_count":  collections.get("knowledge", {}).get("count", 0),
+        "code_count":       collections.get("code",      {}).get("count", 0),
     }
 
 
@@ -815,10 +834,7 @@ async def brain_list(
         search_space_id, len(passports),
     )
 
-    return {
-        "count":     len(passports),
-        "passports": passports,
-    }
+    return passports
 
 
 # ── F6.B.05 — GET + PUT /api/v1/brain/passport/{source} ──────────────────────
