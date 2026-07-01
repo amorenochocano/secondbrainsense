@@ -73,22 +73,6 @@ Infraestructura
 # 3. Arquitectura
 
 ```
-surfsense_backend/app/
-  brain/             ← NUESTRO MÓDULO: pipeline RAG, extractores, conectores
-  agents/            Upstream: agentes de chat y presentaciones de vídeo (LangGraph)
-  automations/       Upstream: automatizaciones programadas
-  connectors/        Upstream: conectores OAuth (Drive, OneDrive, Dropbox…)
-  etl_pipeline/      Upstream: parseo de documentos (Docling/Unstructured/LlamaCloud)
-  gateway/           Upstream: gateway de mensajería (Telegram, Slack, Discord, WhatsApp)
-  indexing_pipeline/ Upstream: adaptadores de indexación vectorial
-  routes/            Upstream: rutas FastAPI
-  tasks/             Upstream: tareas Celery
-  services/          Upstream: servicios de integración
-```
-
-Pipeline Brain (nuestro módulo):
-
-```
 Fuente (fichero / conector)
 ↓
 FormatDetector + SubtypeDetector   [brain/rag_lib/detector]
@@ -111,34 +95,89 @@ BrainGraph (relaciones)            [brain/graph.py]
 # 4. Estructura de directorios
 
 ```
-surfsense_backend/
-  app/brain/
-    extractors/         Un extractor por tipo de fichero (pdf, docx, xlsx, pptx, ipynb, csv, …)
+surfsense_backend/app/
+  brain/                    ← NUESTRO MÓDULO
+    brain_ingest.py         punto de entrada de ingesta
+    brain_watcher.py        watcher asyncio para re-indexar .md editados
+    ingest_router.py        enruta CleanChunks a Qdrant
+    synthesizer.py          síntesis LLM del pasaporte (Planner v5)
+    llm_client.py           cliente unificado Ollama/Claude/hybrid
+    qdrant_manager.py       gestión de colecciones Qdrant
+    vocabulary.py           vocabulario controlado (única fuente de verdad)
+    writer.py               lectura/escritura pasaportes .md
+    graph.py                grafo de relaciones D3/vis.js
+    passport_builder.py     construcción determinista del pasaporte
+    model_profiles.py       perfiles de modelo (capacidad, límites)
+    masters.py              maestros de dominio/subtipo
+    metadata_service.py     enriquecimiento de metadatos
+    chunking.py             utilidades de chunking
+    collections.py          definición de colecciones Qdrant
+    router.py               rutas FastAPI del brain
+    extractors/
+      base.py               BaseExtractor (heredar aquí)
+      factory.py            ExtractorFactory._MAP (registrar aquí)
+      pdf.py, docx.py, xlsx.py, pptx.py, csv.py, txt.py
+      ipynb.py, markdown.py, drawio.py, xml_ext.py
+      json_fabric.py, python_file.py, sql_file.py, web.py
+      confluence.py, jira_ticket.py, github_file.py
+    connectors/
+      factory.py            ConnectorFactory
+      confluence_connector.py, jira_connector.py, github_connector.py
     rag_lib/
-      detector/         Detección de formato y subtipo + registro de procesadores
-      layer1_universal/ Limpieza de texto, quality_score (detección PII con Presidio)
-      layer4_assembler/ Ensamblado de chunks (CleanChunk)
-      config/           registry_config.yaml
-      orchestrator.py   Punto de entrada único del pipeline RAG
-    connectors/         Conectores Confluence, Jira, GitHub (módulo brain)
-    prompts/            Bloques de prompt, builder, specs de subtipo, preprocesado por tipo
-    graph.py            Grafo de relaciones entre documentos (compatible D3 / vis.js)
-    writer.py           Lectura/escritura de pasaportes semánticos (.md con frontmatter YAML)
-    vocabulary.py       Vocabulario controlado — única fuente de verdad para tags canónicas
-  alembic/              Migraciones de BD
-  tests/                Tests pytest unitarios e integración
+      orchestrator.py       entrada única del pipeline RAG
+      detector/             format_detector.py, subtype_detector.py, processor_registry.py
+      layer1_universal/     universal_cleaner.py (limpieza + PII + quality_score)
+      layer4_assembler/     chunk_assembler.py → CleanChunk
+      config/               registry_config.yaml
+    prompts/
+      builder.py, blocks.py, planner.py, subtypes.py, type_specs.py
+      preprocessing/        un fichero por tipo (pdf, docx, xlsx…)
 
-surfsense_web/               Frontend Next.js (upstream)
-surfsense_desktop/           App de escritorio Electron (upstream)
-surfsense_browser_extension/ Extensión de navegador (upstream)
-surfsense_obsidian/          Plugin de Obsidian (upstream)
-surfsense_evals/             Scripts de evaluación RAG
+  agents/                   upstream: agentes LangGraph (chat, vídeo)
+  automations/              upstream: automatizaciones programadas
+  connectors/               upstream: OAuth (Drive, OneDrive, Dropbox…)
+  etl_pipeline/             upstream: parseo ETL (Docling/Unstructured/LlamaCloud)
+  gateway/                  upstream: mensajería (Telegram, Slack, Discord, WhatsApp)
+  indexing_pipeline/        upstream: adaptadores indexación vectorial
+  routes/                   upstream: rutas FastAPI principales
+  tasks/                    upstream: tareas Celery
+  services/                 upstream: servicios de integración externos
 
-docker/                 Configs Docker Compose, colector OTel, config SearXNG
+surfsense_web/              frontend Next.js 16 + React 19 + TypeScript 5 (upstream)
+  app/                    rutas Next.js App Router
+    (home)/               landing page
+    auth/                 login/registro
+    dashboard/            panel principal
+    api/                  API routes Next.js
+  components/             componentes React por dominio
+    brain/                UI del brain (pasaportes, grafo)
+    new-chat/             interfaz de chat principal
+    connectors/           gestión de conectores
+    documents/            gestión de documentos
+    settings/             configuración de usuario/espacio
+    ui/                   componentes base (shadcn/ui)
+    shared/               componentes reutilizables
+  atoms/                  estado global Jotai por dominio
+  lib/                    utilidades y clientes API
+    apis/                 llamadas al backend
+    brain/                utilidades del brain
+    chat/                 lógica de chat
+  contracts/              tipos e interfaces TypeScript compartidos
+    types/                tipos de dominio
+    enums/                enumeraciones
+  hooks/                  custom hooks React
+  contexts/               React contexts
+  features/               lógica de negocio por feature
+  zero/                   ZeroSync (queries/schema)
+  tests/                  Playwright e2e + smoke tests
+  Herramientas: pnpm, Biome (linter/formatter), Tailwind, Drizzle, Playwright
 
-Arquitectura/
-  Surfsense/            Decisiones de arquitectura por módulo (M1–M7)
-  Fases/                Documentos de planificación por fases
+surfsense_desktop/          Electron (upstream)
+surfsense_browser_extension/ extensión navegador (upstream)
+surfsense_obsidian/         plugin Obsidian (upstream)
+surfsense_evals/            evaluación RAG
+docker/                     Docker Compose, OTel collector, SearXNG
+Arquitectura/Surfsense/     decisiones de arquitectura M1–M7
 ```
 
 ---
@@ -232,17 +271,7 @@ Regla:         Nunca modificar migraciones ya aplicadas.
 ```
 ---
 
-# 10. Seguridad
-
-```
-Secretos solo mediante variables de entorno — nunca hardcodeados.
-BRAIN_DIR solo mediante variable de entorno.
-Presidio (presidio-analyzer / presidio-anonymizer) para detección de PII en UniversalCleaner.
-Nunca registrar en logs contenido de documentos ni PII.
-AUTH_TYPE: LOCAL (email/contraseña) o GOOGLE (OAuth2).
-```
-
-# 12. Testing
+# 10. Testing
 
 ```
 Framework:   pytest (asyncio_mode = auto)
@@ -254,7 +283,7 @@ Evals:       surfsense_evals/ (scripts de evaluación RAG independientes)
 ```
 
 
-# 16. Restricciones
+# 11. Restricciones
 
 ```
 No modificar código upstream SurfSense sin justificación explícita.
