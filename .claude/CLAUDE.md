@@ -1,118 +1,50 @@
 # CLAUDE.md — secondbrainsense
+Comportamiento global en CLAUDE.md global. Aquí solo contexto específico del proyecto.
 
-> Solo contexto específico del proyecto.
-> El comportamiento global, estilo y principios de ingeniería están en el `CLAUDE.md` global.
+## Contexto
+Second brain on-premise para Enagás, fork de SurfSense. Ingesta documentos (ficheros, Confluence, Jira, GitHub, OneDrive), indexa en Qdrant para RAG, expone interfaz de chat.
+Usuarios: equipos internos Enagás. Prioridad: integridad de datos → mantenibilidad → rendimiento.
 
----
-
-# 1. Contexto del proyecto
-
-Second brain on-premise para Enagás, fork de SurfSense.
-
-Ingesta documentos de múltiples fuentes (ficheros, Confluence, Jira, GitHub, OneDrive, etc.),
-extrae contenido estructurado, lo indexa en Qdrant para búsqueda  hibrida semántica y RAG,
-y lo expone mediante una interfaz de chat.
-
-Usuarios: equipos internos de Enagás.
-
-Orden de prioridad: integridad de datos → mantenibilidad → rendimiento.
----
-# 2. Stack tecnológico
-
-```
-Backend
-- Python 3.12
-- FastAPI
-- LangGraph + LangChain
-- LiteLLM (abstracción LLM)
-- Celery + Redis (cola de tareas async)
-- SQLAlchemy + Alembic
-
-LLM (local)
-- Ollama en la máquina host
-- Modelos: deepseek-r1:14b (por defecto), qwen2.5-coder:7b (síntesis), qwen2.5-coder:3b (chat)
+## Stack
+- Backend: Python 3.12, FastAPI, LangGraph+LangChain, LiteLLM, Celery+Redis, SQLAlchemy+Alembic
+- LLM local (Ollama): deepseek-r1:14b (default), qwen2.5-coder:7b (síntesis), qwen2.5-coder:3b (chat)
 - Embeddings: nomic-embed-text (brain/knowledge), qwen3-embedding:4b (código)
+- Vector store: Qdrant | BD: PostgreSQL+pgvector | ETL: Docling/Unstructured/LlamaCloud (ETL_SERVICE)
+- Storage: local FS o Azure Blob | Observabilidad: OpenTelemetry+LangSmith
+- Frontend: Next.js 16, React 19, TypeScript 5 | Desktop: Electron | Ext: browser extension, Obsidian plugin
+- Tooling: uv, ruff (line-length 88, py312), Docker Compose
 
-Vector store
-- Qdrant
-
-Base de datos
-- PostgreSQL + pgvector
-
-Parseo de documentos (ETL)
-- Docling (por defecto), Unstructured o LlamaCloud (variable ETL_SERVICE)
-
-Almacenamiento de ficheros
-- Sistema de ficheros local (por defecto) o Azure Blob Storage
-
-Observabilidad
-- OpenTelemetry + LangSmith
-
-Frontend
-- Next.js 16, React 19, TypeScript 5
-
-App de escritorio
-- Electron (surfsense_desktop)
-
-Extensión de navegador
-- surfsense_browser_extension
-
-Plugin de Obsidian
-- surfsense_obsidian
-
-Gestor de paquetes (backend)
-- uv
-
-Linter / formateador
-- ruff (line-length 88, py312)
-
-Infraestructura
-- Docker Compose
+## Arquitectura del pipeline
 ```
----
-# 3. Arquitectura
-
+Fuente → FormatDetector+SubtypeDetector [rag_lib/detector]
+       → Extractor [extractors/]
+       → UniversalCleaner [rag_lib/layer1_universal]
+       → ChunkAssembler [rag_lib/layer4_assembler]
+       → Writer → pasaporte .md [writer.py]
+       → BrainGraph [graph.py]
 ```
-Fuente (fichero / conector)
-↓
-FormatDetector + SubtypeDetector   [brain/rag_lib/detector]
-↓
-Extractor                           [brain/extractors/]
-↓
-UniversalCleaner                   [brain/rag_lib/layer1_universal]
-↓
-ChunkAssembler                     [brain/rag_lib/layer4_assembler]
-↓
-Writer → pasaporte semántico (.md) [brain/writer.py]
-↓
-BrainGraph (relaciones)            [brain/graph.py]
-```
+`app/brain/` es nuestro módulo. Todo lo externo es upstream SurfSense — no modificar sin justificación explícita.
 
-`app/brain/` es nuestro módulo. Todo lo que está fuera es upstream SurfSense — no modificar sin justificación explícita.
-
----
-
-# 4. Estructura de directorios
-
+## Estructura de directorios
 ```
 surfsense_backend/app/
   brain/                    ← NUESTRO MÓDULO
-    brain_ingest.py         punto de entrada de ingesta
-    brain_watcher.py        watcher asyncio para re-indexar .md editados
+    brain_ingest.py         entrada de ingesta
+    brain_watcher.py        watcher re-indexar .md editados
     ingest_router.py        enruta CleanChunks a Qdrant
-    synthesizer.py          síntesis LLM del pasaporte (Planner v5)
+    synthesizer.py          síntesis LLM pasaporte (Planner v5)
     llm_client.py           cliente unificado Ollama/Claude/hybrid
-    qdrant_manager.py       gestión de colecciones Qdrant
+    qdrant_manager.py       gestión colecciones Qdrant
     vocabulary.py           vocabulario controlado (única fuente de verdad)
     writer.py               lectura/escritura pasaportes .md
-    graph.py                grafo de relaciones D3/vis.js
-    passport_builder.py     construcción determinista del pasaporte
-    model_profiles.py       perfiles de modelo (capacidad, límites)
-    masters.py              maestros de dominio/subtipo
-    metadata_service.py     enriquecimiento de metadatos
-    chunking.py             utilidades de chunking
-    collections.py          definición de colecciones Qdrant
-    router.py               rutas FastAPI del brain
+    graph.py                grafo relaciones D3/vis.js
+    passport_builder.py     construcción determinista pasaporte
+    model_profiles.py       perfiles modelo (capacidad, límites)
+    masters.py              maestros dominio/subtipo
+    metadata_service.py     enriquecimiento metadatos
+    chunking.py             utilidades chunking
+    collections.py          definición colecciones Qdrant
+    router.py               rutas FastAPI brain
     extractors/
       base.py               BaseExtractor (heredar aquí)
       factory.py            ExtractorFactory._MAP (registrar aquí)
@@ -124,174 +56,81 @@ surfsense_backend/app/
       factory.py            ConnectorFactory
       confluence_connector.py, jira_connector.py, github_connector.py
     rag_lib/
-      orchestrator.py       entrada única del pipeline RAG
+      orchestrator.py       entrada única pipeline RAG
       detector/             format_detector.py, subtype_detector.py, processor_registry.py
-      layer1_universal/     universal_cleaner.py (limpieza + PII + quality_score)
+      layer1_universal/     universal_cleaner.py (limpieza+PII+quality_score)
       layer4_assembler/     chunk_assembler.py → CleanChunk
       config/               registry_config.yaml
     prompts/
       builder.py, blocks.py, planner.py, subtypes.py, type_specs.py
       preprocessing/        un fichero por tipo (pdf, docx, xlsx…)
+  agents/         upstream: agentes LangGraph
+  automations/    upstream: automatizaciones
+  connectors/     upstream: OAuth (Drive, OneDrive, Dropbox…)
+  etl_pipeline/   upstream: parseo ETL
+  gateway/        upstream: mensajería (Telegram, Slack, Discord, WhatsApp)
+  indexing_pipeline/ upstream: adaptadores indexación vectorial
+  routes/         upstream: rutas FastAPI principales
+  tasks/          upstream: tareas Celery
+  services/       upstream: servicios externos
 
-  agents/                   upstream: agentes LangGraph (chat, vídeo)
-  automations/              upstream: automatizaciones programadas
-  connectors/               upstream: OAuth (Drive, OneDrive, Dropbox…)
-  etl_pipeline/             upstream: parseo ETL (Docling/Unstructured/LlamaCloud)
-  gateway/                  upstream: mensajería (Telegram, Slack, Discord, WhatsApp)
-  indexing_pipeline/        upstream: adaptadores indexación vectorial
-  routes/                   upstream: rutas FastAPI principales
-  tasks/                    upstream: tareas Celery
-  services/                 upstream: servicios de integración externos
-
-surfsense_web/              frontend Next.js 16 + React 19 + TypeScript 5 (upstream)
-  app/                    rutas Next.js App Router
-    (home)/               landing page
-    auth/                 login/registro
-    dashboard/            panel principal
-    api/                  API routes Next.js
-  components/             componentes React por dominio
-    brain/                UI del brain (pasaportes, grafo)
-    new-chat/             interfaz de chat principal
-    connectors/           gestión de conectores
-    documents/            gestión de documentos
-    settings/             configuración de usuario/espacio
-    ui/                   componentes base (shadcn/ui)
-    shared/               componentes reutilizables
-  atoms/                  estado global Jotai por dominio
-  lib/                    utilidades y clientes API
-    apis/                 llamadas al backend
-    brain/                utilidades del brain
-    chat/                 lógica de chat
-  contracts/              tipos e interfaces TypeScript compartidos
-    types/                tipos de dominio
-    enums/                enumeraciones
-  hooks/                  custom hooks React
-  contexts/               React contexts
-  features/               lógica de negocio por feature
-  zero/                   ZeroSync (queries/schema)
-  tests/                  Playwright e2e + smoke tests
-  Herramientas: pnpm, Biome (linter/formatter), Tailwind, Drizzle, Playwright
-
-surfsense_desktop/          Electron (upstream)
-surfsense_browser_extension/ extensión navegador (upstream)
-surfsense_obsidian/         plugin Obsidian (upstream)
-surfsense_evals/            evaluación RAG
-docker/                     Docker Compose, OTel collector, SearXNG
-Arquitectura/Surfsense/     decisiones de arquitectura M1–M7
+surfsense_web/    frontend Next.js (upstream) — app/, components/, atoms/, lib/, contracts/, hooks/, contexts/, features/, zero/, tests/
+surfsense_desktop/ surfsense_browser_extension/ surfsense_obsidian/ — upstream
+surfsense_evals/  evaluación RAG
+docker/           Docker Compose, OTel, SearXNG
+Arquitectura/Surfsense/ decisiones M1–M7
 ```
 
----
+## Vocabulario
+Fuente de verdad: `vocabulary.py`. No inventar tags; usar o extender `VOCABULARY`.
+- Pasaporte semántico: .md con frontmatter por documento ingestado, en BRAIN_DIR
+- Brain: base de conocimiento indexada (BRAIN_DIR, default /data/brain)
+- Tag canónica: forma oficial (clave izquierda en VOCABULARY)
+- Alias: variante normalizada a tag canónica
+- CleanChunk: salida ChunkAssembler, lista para indexación vectorial
+- quality_score: puntuación UniversalCleaner por bloque
+- Search Space: namespace de conocimiento por usuario/equipo (concepto upstream)
 
-# 5. Vocabulario del proyecto
+## Reglas de código y negocio
+- Todo código nuevo en app/brain/ o submódulos.
+- No modificar upstream SurfSense sin justificación explícita.
+- Verificar pyproject.toml antes de añadir dependencias.
+- Tests: @pytest.mark.unit (sin servicios externos) | @pytest.mark.integration (PostgreSQL+Qdrant reales).
+- Commits: cortos, español o inglés, sin emojis. Timestamps: UTC.
+- Editar solo VOCABULARY en vocabulary.py — ALIAS y _PATTERNS son derivados, no editar directamente.
+- Todo documento ingestado → pasaporte semántico (.md con frontmatter).
+- Tags: normalizar a canónica antes de guardar.
+- BRAIN_DIR y OLLAMA_HOST: solo desde env var, nunca hardcodeados.
+- _graph.json: derivado del frontmatter, nunca escribir manualmente.
+- PII: detectar y anonimizar (Presidio) antes de indexar. Nunca loguear contenido ni PII.
+- No modificar migraciones Alembic ya aplicadas.
+- Cambio en schema de frontmatter → actualizar writer.py y graph.py.
+- No tocar surfsense_web/, surfsense_desktop/, surfsense_browser_extension/, surfsense_obsidian/ salvo petición explícita.
 
-El vocabulario canónico está definido en `vocabulary.py` — única fuente de verdad.
-No inventar nombres de tags; siempre usar o extender `VOCABULARY`.
+## Integraciones externas
+- Ollama: inferencia LLM local. OLLAMA_HOST (default http://host.docker.internal:11434). Corre en host, no en contenedor.
+- Qdrant: almacén vectorial. Requiere instancia activa (Docker Compose).
+- Confluence/Jira: ATLASSIAN_CLIENT_ID / ATLASSIAN_CLIENT_SECRET (OAuth).
+- GitHub: personal access token (env vars).
+- Redis: broker Celery + cache. REDIS_URL.
+- SearXNG: búsqueda web. SEARXNG_DEFAULT_HOST (auto Docker Compose).
+- LangSmith (opcional): LANGSMITH_API_KEY, LANGSMITH_PROJECT.
+- OpenTelemetry (opcional): OTEL_EXPORTER_OTLP_ENDPOINT.
 
-```
-Pasaporte semántico  = fichero .md generado por documento ingestado, almacenado en BRAIN_DIR
-Brain               = la base de conocimiento indexada (BRAIN_DIR, por defecto /data/brain)
-Tag canónica        = forma oficial de una tag (clave izquierda en VOCABULARY)
-Alias               = variante que se normaliza a una tag canónica
-CleanChunk          = salida del ChunkAssembler, lista para indexación vectorial
-quality_score       = puntuación numérica asignada por UniversalCleaner a cada bloque
-Search Space        = concepto upstream: espacio de conocimiento aislado por usuario/equipo
-```
+## Base de datos
+PostgreSQL+pgvector | SQLAlchemy async | Alembic | PKs: UUID | No modificar migraciones aplicadas.
 
----
+## Testing
+pytest (asyncio_mode=auto) | Config: surfsense_backend/pyproject.toml [tool.pytest.ini_options] | Evals: surfsense_evals/
 
-# 6. Estándares de código
+## Decisiones arquitectónicas (no "mejorar")
+- ExtractorFactory coexiste con Orchestrator durante migración (Fase 5+ para unificar).
+  - process() → interfaz antigua (IngestRouter actual)
+  - process_to_clean_chunks() → interfaz nueva (IngestRouter nuevo)
+- Pipeline YAML genérico: reservado post-migración, no activar aún.
+- LLM_PROVIDER=hybrid: Ollama para contextos cortos, Claude por encima de HYBRID_THRESHOLD tokens.
 
-```
-Todo el código nuevo va en app/brain/ o sus submódulos.
-Nunca modificar código upstream SurfSense sin justificación explícita.
-Antes de añadir una dependencia, verificar que no exista ya en pyproject.toml.
-Tests: @pytest.mark.unit o @pytest.mark.integration.
-Mensajes de commit: cortos, en español o inglés, sin emojis.
-Timestamps: UTC.
-Vocabulario: editar solo el dict VOCABULARY en vocabulary.py — las estructuras derivadas se actualizan solas.
-```
-
----
-
-# 7. Reglas de negocio
-
-```
-Todo documento ingestado debe producir un pasaporte semántico (.md con frontmatter).
-Las tags deben normalizarse a forma canónica antes de almacenarse.
-BRAIN_DIR nunca debe estar hardcodeado — siempre leer de la variable de entorno.
-El grafo (_graph.json) se deriva del frontmatter; nunca escribirlo manualmente.
-El PII debe detectarse y anonimizarse (Presidio) antes de indexar.
-Nunca registrar en logs el contenido de documentos ni PII.
-```
----
-# 8. Integraciones externas
-
-```
-Ollama
-  Propósito: inferencia LLM local (síntesis + chat + embeddings)
-  Conexión: OLLAMA_HOST (por defecto http://host.docker.internal:11434)
-  Restricción: corre en el host, no dentro del contenedor
-
-Qdrant
-  Propósito: almacén vectorial para embeddings de chunks
-  Restricción: requiere instancia en ejecución (Docker Compose)
-
-Confluence / Jira
-  Propósito: ingesta de documentos y tickets
-  Auth: Atlassian OAuth (ATLASSIAN_CLIENT_ID / ATLASSIAN_CLIENT_SECRET)
-
-GitHub
-  Propósito: ingesta de ficheros de repositorios
-  Auth: personal access token (variables de entorno)
-
-Redis
-  Propósito: broker Celery + result backend + caché de app
-  Conexión: REDIS_URL
-
-SearXNG
-  Propósito: búsqueda web integrada
-  Conexión: SEARXNG_DEFAULT_HOST (Docker Compose lo configura automáticamente)
-
-LangSmith (opcional)
-  Propósito: observabilidad y trazado de llamadas LLM
-  Config: LANGSMITH_API_KEY, LANGSMITH_PROJECT
-
-OpenTelemetry (opcional)
-  Propósito: trazado distribuido y métricas
-  Config: OTEL_EXPORTER_OTLP_ENDPOINT
-```
----
-# 9. Base de datos
-```
-Base de datos: PostgreSQL + pgvector
-ORM:           SQLAlchemy (async)
-Migraciones:   Alembic
-PKs:           UUID
-Regla:         Nunca modificar migraciones ya aplicadas.
-```
----
-
-# 10. Testing
-
-```
-Framework:   pytest (asyncio_mode = auto)
-Tests unit:  @pytest.mark.unit — lógica pura, sin BD, sin Qdrant, sin Ollama
-Integración: @pytest.mark.integration — requieren PostgreSQL + Qdrant reales
-Mocking:     mockear servicios externos en tests unitarios
-Config:      surfsense_backend/pyproject.toml [tool.pytest.ini_options]
-Evals:       surfsense_evals/ (scripts de evaluación RAG independientes)
-```
-
-
-# 11. Restricciones
-
-```
-No modificar código upstream SurfSense sin justificación explícita.
-No renombrar las variables de entorno BRAIN_DIR ni OLLAMA_HOST.
-No añadir dependencias sin verificar primero pyproject.toml.
-No hardcodear rutas, secretos ni nombres de modelos.
-No editar ALIAS ni _PATTERNS en vocabulary.py directamente — son derivados.
-No modificar migraciones Alembic ya aplicadas.
-No cambiar el esquema de frontmatter del pasaporte semántico sin actualizar writer.py y graph.py.
-No tocar surfsense_web/, surfsense_desktop/, surfsense_browser_extension/, surfsense_obsidian/ salvo petición explícita.
-```
+## Referencias
+- Arquitectura/Surfsense/00-indice.md — módulos M1–M7
+- surfsense_backend/.env.example — variables de entorno
+- surfsense_backend/pyproject.toml — dependencias y config
