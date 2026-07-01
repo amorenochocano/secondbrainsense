@@ -40,14 +40,13 @@ import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { LevelBadge, SourceCard } from "@/components/brain";
+import { LevelBadge } from "@/components/brain";
 import { brainApiService } from "@/lib/apis/brain-api.service";
 import { brainLogger } from "@/lib/brain/logger";
 import { BRAIN_CHAT_HINTS, BRAIN_LEVELS } from "@/lib/brain/constants";
 import { detectRetrieveMode } from "@/lib/brain/retrieve-mode";
 import type {
   BrainLevelValue,
-  BrainSource,
   RetrieveMode,
 } from "@/contracts/types/brain.types";
 import { cn } from "@/lib/utils";
@@ -66,7 +65,7 @@ interface BrainChatMessage {
   /** Solo en mensajes del asistente */
   levelUsed?: BrainLevelValue;
   modelTier?: string | null;
-  sources?: BrainSource[];
+  sources?: string[];
   drillDownAvailable?: boolean;
   /** Pregunta original para reenvío drill-down */
   originalQuestion?: string;
@@ -256,7 +255,12 @@ function AssistantMessage({
             <div className="space-y-1">
               {message.sources.map((src, i) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: fuentes sin ID único
-                <SourceCard key={`${src.source}-${i}`} source={src} />
+                <span
+                  key={`${src}-${i}`}
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground bg-muted/30"
+                >
+                  📄 {src}
+                </span>
               ))}
             </div>
           </div>

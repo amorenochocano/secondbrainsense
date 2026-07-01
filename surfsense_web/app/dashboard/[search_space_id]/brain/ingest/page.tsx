@@ -1,18 +1,18 @@
-﻿"use client";
+"use client";
 
 /**
  * @file page.tsx
  * @module app/dashboard/[search_space_id]/brain/ingest
  *
- * F6.8 â€” Ingesta avanzada y monitorizaciÃ³n del pipeline Brain.
+ * F6.8 — Ingesta avanzada y monitorización del pipeline Brain.
  *
- * DiseÃ±o en dos pestaÃ±as:
- *   â€¢ "Ingestar URL": input de URL con routing preview en tiempo real,
- *     recomendaciÃ³n automÃ¡tica de modelo, y log animado de 4 fases SSE.
- *   â€¢ "MonitorizaciÃ³n": historial de todos los documentos ingestados con
- *     categorÃ­a A/B/C del pipeline F5, scopes, y fecha de actualizaciÃ³n.
+ * Diseño en dos pestañas:
+ *   • "Ingestar URL": input de URL con routing preview en tiempo real,
+ *     recomendación automática de modelo, y log animado de 4 fases SSE.
+ *   • "Monitorización": historial de todos los documentos ingestados con
+ *     categoría A/B/C del pipeline F5, scopes, y fecha de actualización.
  *
- * GestiÃ³n de logs: brainLogger("BrainIngestPage")
+ * Gestión de logs: brainLogger("BrainIngestPage")
  * ZERO HARDCODE: todas las constantes en lib/brain/constants.ts
  */
 
@@ -65,9 +65,9 @@ import {
 
 const log = brainLogger("BrainIngestPage");
 
-// â”€â”€â”€ Utilidades locales â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Utilidades locales ───────────────────────────────────────────────────────
 
-/** Extrae la extensiÃ³n de un path/URL (ej. ".pdf", null si no hay) */
+/** Extrae la extensión de un path/URL (ej. ".pdf", null si no hay) */
 function extractExtension(input: string): string | null {
   try {
     const pathname = input.startsWith("http") ? new URL(input).pathname : input;
@@ -78,15 +78,15 @@ function extractExtension(input: string): string | null {
   }
 }
 
-/** Devuelve la categoría del pipeline para una extensión/URL dada.
+/** Devuelve la categor�a del pipeline para una extensi�n/URL dada.
  *
- *  - Extensión conocida en BRAIN_INGEST_EXTENSION_CATEGORY → la del mapa
- *  - URL sin extensión (página web) → B: el backend usa CRAWLED_URL → WebExtractor
- *  - Extensión desconocida de fichero → C: "saco" genérico
+ *  - Extensi�n conocida en BRAIN_INGEST_EXTENSION_CATEGORY ? la del mapa
+ *  - URL sin extensi�n (p�gina web) ? B: el backend usa CRAWLED_URL ? WebExtractor
+ *  - Extensi�n desconocida de fichero ? C: "saco" gen�rico
  */
 function getCategoryForExtension(ext: string | null, isUrl = false): IngestCategory {
   if (ext) return BRAIN_INGEST_EXTENSION_CATEGORY[ext] ?? "A"; // fichero con ext desconocida sigue siendo A
-  if (isUrl) return "B"; // URL sin extensión → CRAWLED_URL → WebExtractor (cat B)
+  if (isUrl) return "B"; // URL sin extensi�n ? CRAWLED_URL ? WebExtractor (cat B)
   return "C";
 }
 
@@ -116,7 +116,7 @@ function formatDate(iso: string): string {
   }
 }
 
-// â”€â”€â”€ Sub-componente: Badge de categorÃ­a del pipeline â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Sub-componente: Badge de categoría del pipeline ─────────────────────────
 
 interface CategoryBadgeProps {
   category: IngestCategory;
@@ -147,7 +147,7 @@ function CategoryBadge({ category }: CategoryBadgeProps) {
   );
 }
 
-// â”€â”€â”€ Sub-componente: Panel de routing preview â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Sub-componente: Panel de routing preview ─────────────────────────────────
 
 interface RoutingPreviewPanelProps {
   url: string;
@@ -156,12 +156,12 @@ interface RoutingPreviewPanelProps {
 
 function RoutingPreviewPanel({ url, selectedModel }: RoutingPreviewPanelProps) {
   const ext = extractExtension(url);
-  // URL sin extensión → CRAWLED_URL → WebExtractor → cat B
+  // URL sin extensi�n ? CRAWLED_URL ? WebExtractor ? cat B
   const isUrl = url.startsWith("http");
   const category = getCategoryForExtension(ext, isUrl);
   const catCfg = BRAIN_INGEST_CATEGORIES[category];
 
-  // Determinar colecciones Qdrant segÃºn routing
+  // Determinar colecciones Qdrant según routing
   const preview = BRAIN_ROUTING_PREVIEW;
   const collections: string[] = ["brain"];
   if (preview.knowledge_routing) collections.push("knowledge");
@@ -169,7 +169,7 @@ function RoutingPreviewPanel({ url, selectedModel }: RoutingPreviewPanelProps) {
     collections.push("code");
   }
 
-  // Modelo recomendado segÃºn extensiÃ³n
+  // Modelo recomendado según extensión
   const recommended = BRAIN_MODEL_RECOMMENDATION.model;
   const isRecommendedSelected = selectedModel === recommended || selectedModel === "auto";
 
@@ -182,11 +182,11 @@ function RoutingPreviewPanel({ url, selectedModel }: RoutingPreviewPanelProps) {
         </span>
       </div>
 
-      {/* Extensión detectada + Pipeline */}
+      {/* Extensi�n detectada + Pipeline */}
       <div className="flex flex-wrap gap-2 items-center">
         <span className="text-xs text-slate-400">Tipo detectado:</span>
         <span className="font-mono text-xs text-slate-200 bg-slate-700/60 rounded px-1.5 py-0.5">
-          {ext ?? "sin extensión"}
+          {ext ?? "sin extensi�n"}
         </span>
         <CategoryBadge category={category} />
       </div>
@@ -226,7 +226,7 @@ function RoutingPreviewPanel({ url, selectedModel }: RoutingPreviewPanelProps) {
   );
 }
 
-// â”€â”€â”€ Sub-componente: estado vacÃ­o del monitor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Sub-componente: estado vacío del monitor ─────────────────────────────────
 
 interface EmptyMonitorStateProps {
   onGoIngest: () => void;
@@ -241,7 +241,7 @@ function EmptyMonitorState({ onGoIngest }: EmptyMonitorStateProps) {
       <div>
         <h3 className="text-base font-semibold text-slate-200">Sin documentos ingestados</h3>
         <p className="text-sm text-slate-400 mt-1 max-w-xs">
-          Usa la pestaÃ±a &quot;Ingestar URL&quot; para aÃ±adir documentos al Brain.
+          Usa la pestaña &quot;Ingestar URL&quot; para añadir documentos al Brain.
         </p>
       </div>
       <Button variant="outline" size="sm" onClick={onGoIngest} className="gap-2">
@@ -252,7 +252,7 @@ function EmptyMonitorState({ onGoIngest }: EmptyMonitorStateProps) {
   );
 }
 
-// â”€â”€â”€ Sub-componente: tabla del monitor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Sub-componente: tabla del monitor ───────────────────────────────────────
 
 interface MonitorTableProps {
   spaceId: string;
@@ -277,7 +277,7 @@ function MonitorTable({ spaceId, onOpenWiki }: MonitorTableProps) {
   if (isError) {
     return (
       <p className="text-center py-10 text-sm text-red-400">
-        Error al cargar los documentos. IntÃ©ntalo de nuevo.
+        Error al cargar los documentos. Inténtalo de nuevo.
       </p>
     );
   }
@@ -292,7 +292,7 @@ function MonitorTable({ spaceId, onOpenWiki }: MonitorTableProps) {
           <tr className="border-b border-slate-700/60 text-xs text-slate-500 uppercase tracking-wider">
             <th className="text-left pb-3 pr-4 font-medium">Documento</th>
             <th className="text-left pb-3 pr-4 font-medium">Dominio</th>
-            <th className="text-left pb-3 pr-4 font-medium">CategorÃ­a</th>
+            <th className="text-left pb-3 pr-4 font-medium">Categoría</th>
             <th className="text-left pb-3 pr-4 font-medium">Scopes</th>
             <th className="text-left pb-3 pr-4 font-medium">Actualizado</th>
             <th className="pb-3 font-medium" />
@@ -301,7 +301,7 @@ function MonitorTable({ spaceId, onOpenWiki }: MonitorTableProps) {
         <tbody className="divide-y divide-slate-700/30">
           {passports.map((passport) => {
             const ext = extractExtension(passport.source);
-            // Si la fuente es una URL y no tiene extensión → cat B (CRAWLED_URL)
+            // Si la fuente es una URL y no tiene extensi�n ? cat B (CRAWLED_URL)
             const isUrl = passport.source.startsWith("http");
             const category = getCategoryForExtension(ext, isUrl);
 
@@ -331,7 +331,7 @@ function MonitorTable({ spaceId, onOpenWiki }: MonitorTableProps) {
                   <DomainBadge domain={passport.domain} size="sm" />
                 </td>
 
-                {/* CategorÃ­a pipeline */}
+                {/* Categoría pipeline */}
                 <td className="py-3 pr-4">
                   <CategoryBadge category={category} />
                 </td>
@@ -350,7 +350,7 @@ function MonitorTable({ spaceId, onOpenWiki }: MonitorTableProps) {
                   </div>
                 </td>
 
-                {/* Fecha actualizaciÃ³n */}
+                {/* Fecha actualización */}
                 <td className="py-3 pr-4">
                   <span className="flex items-center gap-1 text-xs text-slate-400 whitespace-nowrap">
                     <Clock className="h-3 w-3" />
@@ -358,7 +358,7 @@ function MonitorTable({ spaceId, onOpenWiki }: MonitorTableProps) {
                   </span>
                 </td>
 
-                {/* AcciÃ³n */}
+                {/* Acción */}
                 <td className="py-3">
                   <button
                     type="button"
@@ -378,14 +378,14 @@ function MonitorTable({ spaceId, onOpenWiki }: MonitorTableProps) {
   );
 }
 
-// â”€â”€â”€ PÃ¡gina principal â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function BrainIngestPage() {
   const params = useParams<{ search_space_id: string }>();
   const spaceId = params.search_space_id;
   const router = useRouter();
 
-  // â”€â”€ Estado del formulario de ingesta â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Estado del formulario de ingesta ────────────────────────────────────────
   const [url, setUrl]                 = useState("");
   const [selectedModel, setSelectedModel] = useState("auto");
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
@@ -393,19 +393,19 @@ export default function BrainIngestPage() {
   const [ingestDone, setIngestDone]   = useState(false);
   const [activeTab, setActiveTab]     = useState("ingest");
 
-  // â”€â”€ Estado derivado â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Estado derivado ──────────────────────────────────────────────────────────
   const urlValid     = isValidHttpUrl(url);
   const showPreview  = url.length > 10 && urlValid;
   const canIngest    = urlValid && !isIngesting;
 
-  // â”€â”€ Lista de modelos disponibles (reutiliza modelos Ollama del sistema) â”€â”€â”€â”€â”€â”€
+  // ── Lista de modelos disponibles (reutiliza modelos Ollama del sistema) ──────
   const { data: passportList } = useQuery({
     queryKey: cacheKeys.brain.list(Number(spaceId)),
     queryFn: () => brainApiService.listPassports(Number(spaceId)),
     staleTime: 30_000,
   });
 
-  // â”€â”€ MutaciÃ³n de ingesta â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Mutación de ingesta ──────────────────────────────────────────────────────
   const ingestMutation = useMutation({
     mutationFn: () =>
       brainApiService.ingestUrl(url, Number(spaceId), selectedModel === "auto" ? undefined : selectedModel),
@@ -427,13 +427,13 @@ export default function BrainIngestPage() {
     },
   });
 
-  // â”€â”€ Callbacks SSE â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Callbacks SSE ────────────────────────────────────────────────────────────
   const handlePipelineComplete = useCallback(() => {
     setIsIngesting(false);
     setIngestDone(true);
     log.info("Pipeline completado, invalidar lista de documentos");
     toast("Ingesta completada", {
-      description: "El documento ha sido procesado y está disponible en el Brain.",
+      description: "El documento ha sido procesado y est� disponible en el Brain.",
     });
   }, [toast]);
 
@@ -446,7 +446,7 @@ export default function BrainIngestPage() {
     [toast],
   );
 
-  // â”€â”€ Handlers de UI â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Handlers de UI ───────────────────────────────────────────────────────────
   const handleIngest = () => {
     if (!canIngest) return;
     log.info("Iniciando ingesta", { url, model: selectedModel });
@@ -466,18 +466,18 @@ export default function BrainIngestPage() {
       {/* Breadcrumb */}
       <BrainBreadcrumb spaceId={spaceId} current="Ingesta" />
 
-      {/* Cabecera de la pÃ¡gina */}
+      {/* Cabecera de la página */}
       <div>
         <h1 className="text-xl font-bold text-slate-100 flex items-center gap-2">
           <Link2 className="h-5 w-5 text-violet-400" />
           Ingesta avanzada
         </h1>
         <p className="text-sm text-slate-400 mt-1">
-          AÃ±ade documentos al Brain por URL. Observa el pipeline en tiempo real.
+          Añade documentos al Brain por URL. Observa el pipeline en tiempo real.
         </p>
       </div>
 
-      {/* PestaÃ±as principales */}
+      {/* Pestañas principales */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="grid w-full grid-cols-2 max-w-sm">
           <TabsTrigger value="ingest" className="gap-2">
@@ -486,7 +486,7 @@ export default function BrainIngestPage() {
           </TabsTrigger>
           <TabsTrigger value="monitor" className="gap-2">
             <Database className="h-3.5 w-3.5" />
-            MonitorizaciÃ³n
+            Monitorización
             {passportCount > 0 && (
               <Badge variant="secondary" className="ml-1 h-4 text-[10px] px-1.5">
                 {passportCount}
@@ -495,9 +495,9 @@ export default function BrainIngestPage() {
           </TabsTrigger>
         </TabsList>
 
-        {/* â”€â”€ TAB 1: Ingestar URL â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* ── TAB 1: Ingestar URL ────────────────────────────────────────────── */}
         <TabsContent value="ingest" className="mt-6 space-y-6">
-          {/* SecciÃ³n: Input de URL */}
+          {/* Sección: Input de URL */}
           <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-5 space-y-4">
             <div className="flex items-center gap-2">
               <Link2 className="h-4 w-4 text-violet-400" />
@@ -509,8 +509,8 @@ export default function BrainIngestPage() {
                   </TooltipTrigger>
                   <TooltipContent side="right" className="max-w-64">
                     <p className="text-xs">
-                      Soporta pÃ¡ginas web (HTML), PDFs, ficheros Markdown, cÃ³digo fuente (.py,
-                      .sql, .ipynb) y documentos Office. La URL debe ser accesible pÃºblicamente.
+                      Soporta páginas web (HTML), PDFs, ficheros Markdown, código fuente (.py,
+                      .sql, .ipynb) y documentos Office. La URL debe ser accesible públicamente.
                     </p>
                   </TooltipContent>
                 </Tooltip>
@@ -536,12 +536,12 @@ export default function BrainIngestPage() {
               </div>
             </div>
 
-            {/* Routing preview (aparece al escribir una URL vÃ¡lida) */}
+            {/* Routing preview (aparece al escribir una URL válida) */}
             {showPreview && (
               <RoutingPreviewPanel url={url} selectedModel={selectedModel} />
             )}
 
-            {/* Selector de modelo + BotÃ³n ingestar */}
+            {/* Selector de modelo + Botón ingestar */}
             <div className="flex flex-wrap gap-3 items-center">
               <div className="flex items-center gap-2 flex-1 min-w-40">
                 <Select
@@ -550,13 +550,13 @@ export default function BrainIngestPage() {
                   disabled={isIngesting}
                 >
                   <SelectTrigger className="bg-slate-900/50 border-slate-700 text-sm">
-                    <SelectValue placeholder="Modelo automÃ¡tico (recomendado)" />
+                    <SelectValue placeholder="Modelo automático (recomendado)" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="auto">
                       <span className="flex items-center gap-2">
                         <Sparkles className="h-3.5 w-3.5 text-violet-400" />
-                        AutomÃ¡tico â€” {BRAIN_MODEL_RECOMMENDATION.model}
+                        Automático — {BRAIN_MODEL_RECOMMENDATION.model}
                       </span>
                     </SelectItem>
                     <SelectItem value="gpt-4o">gpt-4o</SelectItem>
@@ -574,12 +574,12 @@ export default function BrainIngestPage() {
                 {ingestMutation.isPending ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Iniciandoâ€¦
+                    Iniciando…
                   </>
                 ) : isIngesting ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Procesandoâ€¦
+                    Procesando…
                   </>
                 ) : ingestDone ? (
                   <>
@@ -603,7 +603,7 @@ export default function BrainIngestPage() {
             onError={handlePipelineError}
           />
 
-          {/* Banner de Ã©xito + CTA a Wiki */}
+          {/* Banner de éxito + CTA a Wiki */}
           {ingestDone && (
             <div className="flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
               <span className="flex items-center gap-2 text-sm text-emerald-300">
@@ -633,18 +633,18 @@ export default function BrainIngestPage() {
             </div>
           )}
 
-          {/* InformaciÃ³n sobre el pipeline */}
+          {/* Información sobre el pipeline */}
           {!activeJobId && !ingestDone && (
             <div className="rounded-xl border border-slate-700/40 bg-slate-800/20 p-4">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
-                Â¿CÃ³mo funciona el pipeline?
+                ¿Cómo funciona el pipeline?
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {[
-                  { icon: "ðŸ“¥", title: "ExtracciÃ³n", desc: "Parseo especializado segÃºn el tipo de fichero (PDF, cÃ³digo, Markdownâ€¦)" },
-                  { icon: "ðŸ§ ", title: "SÃ­ntesis L1", desc: "Un LLM genera el pasaporte semÃ¡ntico â†’ colecciÃ³n brain de Qdrant" },
-                  { icon: "ðŸ“¦", title: "Chunking L2", desc: "FragmentaciÃ³n semÃ¡ntica del contenido â†’ colecciones knowledge/code" },
-                  { icon: "ðŸ”¢", title: "VectorizaciÃ³n", desc: "Embeddings de los chunks almacenados en Qdrant para bÃºsqueda RAG" },
+                  { icon: "📥", title: "Extracción", desc: "Parseo especializado según el tipo de fichero (PDF, código, Markdown…)" },
+                  { icon: "🧠", title: "Síntesis L1", desc: "Un LLM genera el pasaporte semántico → colección brain de Qdrant" },
+                  { icon: "📦", title: "Chunking L2", desc: "Fragmentación semántica del contenido → colecciones knowledge/code" },
+                  { icon: "🔢", title: "Vectorización", desc: "Embeddings de los chunks almacenados en Qdrant para búsqueda RAG" },
                 ].map((step) => (
                   <div key={step.title} className="flex gap-3 items-start">
                     <span className="text-xl">{step.icon}</span>
@@ -659,7 +659,7 @@ export default function BrainIngestPage() {
           )}
         </TabsContent>
 
-        {/* â”€â”€ TAB 2: MonitorizaciÃ³n â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* ── TAB 2: Monitorización ──────────────────────────────────────────── */}
         <TabsContent value="monitor" className="mt-6">
           <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-5">
             <div className="flex items-center justify-between mb-4">

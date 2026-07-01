@@ -81,7 +81,7 @@ class BrainApiService {
       force_l0: parsed.data.force_l0,
     });
 
-    return baseApiService.post(BRAIN_ENDPOINTS.QUERY, parsed.data, brainQueryResponse);
+    return baseApiService.post(BRAIN_ENDPOINTS.QUERY, brainQueryResponse, { body: parsed.data });
   };
 
   // ───────────────────────────────────────────────────────────────
@@ -185,7 +185,8 @@ class BrainApiService {
     log.info("Re-sintetizando pasaporte", { source, model });
     await baseApiService.post(
       `${BRAIN_ENDPOINTS.RESYNTHESIZE(source)}`,
-      { search_space_id: searchSpaceId, ...(model ? { model } : {}) },
+      undefined,
+      { body: { search_space_id: searchSpaceId, ...(model ? { model } : {}) } },
     );
   };
 
@@ -225,7 +226,7 @@ class BrainApiService {
   ): Promise<IngestJobResponse> => {
     const payload = ingestUrlRequest.parse({ url, search_space_id: searchSpaceId, model });
     log.info("Iniciando ingesta de URL", { url, searchSpaceId, model });
-    return baseApiService.post(BRAIN_ENDPOINTS.INGEST_URL, payload, ingestJobResponse);
+    return baseApiService.post(BRAIN_ENDPOINTS.INGEST_URL, ingestJobResponse, { body: payload });
   };
 
   /**
@@ -326,7 +327,7 @@ class BrainApiService {
    */
   updateAdminConfig = async (patch: Partial<AdminConfigResponse>): Promise<AdminConfigResponse> => {
     log.info("Actualizando configuración Admin Brain", { patch });
-    return baseApiService.post(BRAIN_ENDPOINTS.ADMIN_CONFIG, patch, adminConfigResponse);
+    return baseApiService.post(BRAIN_ENDPOINTS.ADMIN_CONFIG, adminConfigResponse, { body: patch });
   };
 
   /** Obtiene la lista de modelos Ollama disponibles en el servidor */
@@ -349,13 +350,13 @@ class BrainApiService {
   /** Crea un nuevo dominio */
   createDomain = async (data: Omit<BrainDomainRecord, "id">) => {
     log.info("Creando dominio Brain", { domainKey: data.domain_key });
-    return baseApiService.post(BRAIN_ENDPOINTS.ADMIN_DOMAINS, data, brainDomainListResponse.element);
+    return baseApiService.post(BRAIN_ENDPOINTS.ADMIN_DOMAINS, brainDomainListResponse.element, { body: data });
   };
 
   /** Actualiza un dominio existente */
   updateDomain = async (id: number, data: Partial<BrainDomainRecord>) => {
     log.info("Actualizando dominio Brain", { id });
-    return baseApiService.put(`${BRAIN_ENDPOINTS.ADMIN_DOMAINS}/${id}`, data, brainDomainListResponse.element);
+    return baseApiService.put(`${BRAIN_ENDPOINTS.ADMIN_DOMAINS}/${id}`, brainDomainListResponse.element, { body: data });
   };
 
   /** Elimina un dominio del space (no afecta a dominios globales) */
@@ -367,7 +368,7 @@ class BrainApiService {
   /** Activa o desactiva un dominio */
   toggleDomainActive = async (id: number) => {
     log.info("Toggle activo dominio Brain", { id });
-    return baseApiService.patch(`${BRAIN_ENDPOINTS.ADMIN_DOMAINS}/${id}/toggle-active`, {}, brainDomainListResponse.element);
+    return baseApiService.patch(`${BRAIN_ENDPOINTS.ADMIN_DOMAINS}/${id}/toggle-active`, brainDomainListResponse.element, { body: {} });
   };
 
   // ─── Vocabulario — Tipos de documento ────────────────────────────────────
@@ -384,13 +385,13 @@ class BrainApiService {
   /** Crea un nuevo tipo de documento */
   createDocType = async (data: Omit<BrainDocTypeRecord, "id">) => {
     log.info("Creando tipo de documento Brain", { typeKey: data.type_key });
-    return baseApiService.post(BRAIN_ENDPOINTS.ADMIN_DOC_TYPES, data, brainDocTypeListResponse.element);
+    return baseApiService.post(BRAIN_ENDPOINTS.ADMIN_DOC_TYPES, brainDocTypeListResponse.element, { body: data });
   };
 
   /** Actualiza un tipo de documento */
   updateDocType = async (id: number, data: Partial<BrainDocTypeRecord>) => {
     log.info("Actualizando tipo de documento Brain", { id });
-    return baseApiService.put(`${BRAIN_ENDPOINTS.ADMIN_DOC_TYPES}/${id}`, data, brainDocTypeListResponse.element);
+    return baseApiService.put(`${BRAIN_ENDPOINTS.ADMIN_DOC_TYPES}/${id}`, brainDocTypeListResponse.element, { body: data });
   };
 
   /** Elimina un tipo de documento del space */
@@ -413,13 +414,13 @@ class BrainApiService {
   /** Crea un nuevo entity hint */
   createEntityHint = async (data: Omit<BrainEntityHintRecord, "id">) => {
     log.info("Creando entity hint Brain", { hintKey: data.hint_key });
-    return baseApiService.post(BRAIN_ENDPOINTS.ADMIN_ENTITY_HINTS, data, brainEntityHintListResponse.element);
+    return baseApiService.post(BRAIN_ENDPOINTS.ADMIN_ENTITY_HINTS, brainEntityHintListResponse.element, { body: data });
   };
 
   /** Actualiza un entity hint */
   updateEntityHint = async (id: number, data: Partial<BrainEntityHintRecord>) => {
     log.info("Actualizando entity hint Brain", { id });
-    return baseApiService.put(`${BRAIN_ENDPOINTS.ADMIN_ENTITY_HINTS}/${id}`, data, brainEntityHintListResponse.element);
+    return baseApiService.put(`${BRAIN_ENDPOINTS.ADMIN_ENTITY_HINTS}/${id}`, brainEntityHintListResponse.element, { body: data });
   };
 
   /** Elimina un entity hint del space */
@@ -444,13 +445,13 @@ class BrainApiService {
   /** Crea una nueva entrada canónica */
   createVocabularyEntry = async (data: Omit<BrainVocabularyRecord, "id">) => {
     log.info("Creando entrada vocabulario Brain", { canonical: data.canonical_tag });
-    return baseApiService.post(BRAIN_ENDPOINTS.ADMIN_VOCABULARY, data, brainVocabularyListResponse.element);
+    return baseApiService.post(BRAIN_ENDPOINTS.ADMIN_VOCABULARY, brainVocabularyListResponse.element, { body: data });
   };
 
   /** Actualiza aliases de una entrada canónica */
   updateVocabularyEntry = async (id: number, data: Partial<BrainVocabularyRecord>) => {
     log.info("Actualizando vocabulario Brain", { id });
-    return baseApiService.put(`${BRAIN_ENDPOINTS.ADMIN_VOCABULARY}/${id}`, data, brainVocabularyListResponse.element);
+    return baseApiService.put(`${BRAIN_ENDPOINTS.ADMIN_VOCABULARY}/${id}`, brainVocabularyListResponse.element, { body: data });
   };
 
   /** Elimina una entrada canónica */

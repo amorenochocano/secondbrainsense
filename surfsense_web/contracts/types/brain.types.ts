@@ -64,7 +64,7 @@ export const brainQueryResponse = z.object({
   level_used:          brainLevelSchema,
   level_label:         z.string(),
   model_tier:          z.string().optional().nullable(),
-  sources:             z.array(brainSourceSchema).default([]),
+  sources:             z.array(z.string()).default([]),
   drill_down_available: z.boolean().default(false),
   session_id:          z.string().optional().nullable(),
 });

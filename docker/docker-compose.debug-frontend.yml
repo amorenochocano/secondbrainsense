@@ -11,6 +11,16 @@ services:
     command: sh -c "pnpm run dev"
     ports:
       - "3002:3000"
+    volumes:
+      # Certificado corporativo Enagás/Netskope — igual que producción
+      - ../netskope-ca-bundle.crt:/certs/corp-root.crt:ro
+      # Código fuente montado para hot-reload en desarrollo
+      - ../surfsense_web:/app
+      # Volúmenes anónimos para aislar node_modules y .next del host:
+      # Docker los inicializa desde la imagen (build) y los mantiene en el contenedor,
+      # evitando que el mount de /app sobreescriba los paquetes instalados.
+      - /app/node_modules
+      - /app/.next
     environment:
       - NODE_ENV=development
       - NEXT_PUBLIC_FASTAPI_BACKEND_URL=http://localhost:8929

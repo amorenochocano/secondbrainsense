@@ -1,17 +1,17 @@
-﻿"use client";
+"use client";
 
 /**
  * @file page.tsx
  * @module app/dashboard/[search_space_id]/brain/home
  *
- * Dashboard Brain â€” pantalla de bienvenida y estado del sistema SecondBrainSense.
+ * Dashboard Brain — pantalla de bienvenida y estado del sistema SecondBrainSense.
  *
  * Muestra en tiempo real:
- *  - Estado de salud de los servicios (Qdrant, Ollama, PostgreSQL) â€” primera secciÃ³n
- *  - Tarjetas de colecciÃ³n Qdrant (brain / knowledge / code) con color por scope
- *  - Ãšltima ingesta: fecha + documento
- *  - Nivel de retrieval mÃ¡s usado en las Ãºltimas 24h
- *  - Accesos rÃ¡pidos a las secciones principales (excluye Home)
+ *  - Estado de salud de los servicios (Qdrant, Ollama, PostgreSQL) — primera sección
+ *  - Tarjetas de colección Qdrant (brain / knowledge / code) con color por scope
+ *  - Última ingesta: fecha + documento
+ *  - Nivel de retrieval más usado en las últimas 24h
+ *  - Accesos rápidos a las secciones principales (excluye Home)
  *
  * Fuentes de datos:
  *  - GET /api/v1/brain/stats  â†’ BrainStatsResponse  (stale 60s, refetch on focus)
@@ -64,17 +64,17 @@ import type {
 const log = brainLogger("BrainHomePage");
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// ConfiguraciÃ³n estÃ¡tica (sin hardcode en JSX)
+// Configuración estática (sin hardcode en JSX)
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-/** Icono, color de borde izquierdo y descripciÃ³n por scope de colecciÃ³n Qdrant */
+/** Icono, color de borde izquierdo y descripción por scope de colección Qdrant */
 const COLLECTION_CONFIG: Record<
   BrainScope,
   { label: string; Icon: ElementType; borderClass: string; description: string }
 > = {
   brain:     { label: "Brain",     Icon: Brain,   borderClass: "border-l-violet-500", description: "Pasaportes sintetizados" },
-  knowledge: { label: "Knowledge", Icon: Library, borderClass: "border-l-blue-500",   description: "Chunks semÃ¡nticos"       },
-  code:      { label: "Code",      Icon: Code2,   borderClass: "border-l-emerald-500",description: "Fragmentos de cÃ³digo"    },
+  knowledge: { label: "Knowledge", Icon: Library, borderClass: "border-l-blue-500",   description: "Chunks semánticos"       },
+  code:      { label: "Code",      Icon: Code2,   borderClass: "border-l-emerald-500",description: "Fragmentos de código"    },
 };
 
 /** Mapeo directo de scope â†’ campo en BrainStatsResponse para evitar ternarios */
@@ -104,8 +104,8 @@ const HEALTH_STATUS_CONFIG: Record<
 };
 
 /**
- * Accesos rÃ¡pidos: excluye HOME (ya estamos aquÃ­).
- * routeKey tipado contra BRAIN_ROUTES para detectar claves invÃ¡lidas en compilaciÃ³n.
+ * Accesos rápidos: excluye HOME (ya estamos aquí).
+ * routeKey tipado contra BRAIN_ROUTES para detectar claves inválidas en compilación.
  */
 const QUICK_ACCESS_ITEMS: readonly {
   label: string;
@@ -116,7 +116,7 @@ const QUICK_ACCESS_ITEMS: readonly {
   { label: "Wiki",     Icon: BookOpen,      routeKey: "WIKI"       },
   { label: "Grafo",    Icon: Network,       routeKey: "GRAPH"      },
   { label: "Ingestar", Icon: Upload,        routeKey: "INGEST"     },
-  { label: "MÃ©tricas", Icon: BarChart2,     routeKey: "METRICS"    },
+  { label: "Métricas", Icon: BarChart2,     routeKey: "METRICS"    },
   { label: "Admin",    Icon: Settings2,     routeKey: "ADMIN"      },
   { label: "Maestros", Icon: BookMarked,    routeKey: "VOCABULARY" },
 ];
@@ -135,7 +135,7 @@ function getMostUsedLevel(levelUsage?: Record<string, number>): BrainLevel | nul
 
 /** Formatea una fecha ISO a texto legible */
 function formatDate(iso: string | number | null): string {
-  if (!iso) return "â€”";
+  if (!iso) return "—";
   try {
     return new Intl.DateTimeFormat("es-ES", {
       day: "2-digit", month: "short", year: "numeric",
@@ -150,7 +150,7 @@ function formatDate(iso: string | number | null): string {
 // Subcomponentes
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-/** Tarjeta de colecciÃ³n Qdrant con borde de color e icono por scope */
+/** Tarjeta de colección Qdrant con borde de color e icono por scope */
 function CollectionCard({
   scope,
   count,
@@ -190,7 +190,7 @@ function CollectionCard({
   );
 }
 
-/** Indicador de estado de un servicio con semÃ¡foro de color */
+/** Indicador de estado de un servicio con semáforo de color */
 function ServiceHealthBadge({
   service,
   status,
@@ -213,13 +213,13 @@ function ServiceHealthBadge({
   );
 }
 
-/** Estado vacÃ­o cuando el Brain no tiene documentos indexados aÃºn */
+/** Estado vacío cuando el Brain no tiene documentos indexados aún */
 function BrainEmptyState({ searchSpaceId }: { searchSpaceId: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border/60 bg-muted/20 py-12 text-center">
       <Brain className="h-10 w-10 text-violet-400/60" aria-hidden />
       <div>
-        <p className="text-sm font-medium">Tu Brain estÃ¡ vacÃ­o</p>
+        <p className="text-sm font-medium">Tu Brain está vacío</p>
         <p className="mt-1 text-xs text-muted-foreground max-w-xs mx-auto">
           Ingesta tu primer documento para empezar a construir tu base de conocimiento.
         </p>
@@ -236,7 +236,7 @@ function BrainEmptyState({ searchSpaceId }: { searchSpaceId: string }) {
 }
 
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// PÃ¡gina principal
+// Página principal
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface BrainHomePageProps {
@@ -263,7 +263,7 @@ export default function BrainHomePage({ params }: BrainHomePageProps) {
     refetchOnWindowFocus: true,
   });
 
-  // Estado de salud de los servicios â€” se refresca cada 30s automÃ¡ticamente
+  // Estado de salud de los servicios — se refresca cada 30s automáticamente
   const {
     data: health,
     isLoading: healthLoading,
@@ -278,7 +278,7 @@ export default function BrainHomePage({ params }: BrainHomePageProps) {
     },
     staleTime:       30_000,
     refetchInterval: 30_000,
-    retry:           false, // no reintentar â€” si falla, el usuario lo ve inmediatamente
+    retry:           false, // no reintentar — si falla, el usuario lo ve inmediatamente
   });
 
   const mostUsedLevel = getMostUsedLevel(stats?.level_usage);
@@ -291,7 +291,7 @@ export default function BrainHomePage({ params }: BrainHomePageProps) {
       <div className="p-6 animate-in fade-in duration-300">
         <Alert variant="destructive">
           <AlertDescription>
-            No se pudieron cargar las estadÃ­sticas del Brain. Comprueba que el backend estÃ¡ activo.
+            No se pudieron cargar las estadísticas del Brain. Comprueba que el backend está activo.
           </AlertDescription>
         </Alert>
       </div>
@@ -312,7 +312,7 @@ export default function BrainHomePage({ params }: BrainHomePageProps) {
         </div>
       </div>
 
-      {/* â”€â”€ Estado de servicios (informaciÃ³n crÃ­tica primero) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Estado de servicios (información crítica primero) ─────────────── */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-3">
           <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -359,16 +359,16 @@ export default function BrainHomePage({ params }: BrainHomePageProps) {
           ) : (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              Comprobando serviciosâ€¦
+              Comprobando servicios…
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* â”€â”€ Empty state cuando el Brain estÃ¡ vacÃ­o â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Empty state cuando el Brain está vacío ───────────────────────── */}
       {isBrainEmpty && <BrainEmptyState searchSpaceId={search_space_id} />}
 
-      {/* â”€â”€ Tarjetas de colecciÃ³n Qdrant â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Tarjetas de colección Qdrant ─────────────────────────────────── */}
       <section aria-label="Colecciones Qdrant">
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Colecciones Qdrant
@@ -385,13 +385,13 @@ export default function BrainHomePage({ params }: BrainHomePageProps) {
         </div>
       </section>
 
-      {/* â”€â”€ Ãšltima ingesta + Nivel mÃ¡s usado â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── Última ingesta + Nivel más usado ─────────────────────────────── */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Ãšltima ingesta
+              Última ingesta
             </CardTitle>
             <Clock className="h-4 w-4 text-muted-foreground" aria-hidden />
           </CardHeader>
@@ -420,7 +420,7 @@ export default function BrainHomePage({ params }: BrainHomePageProps) {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Nivel mÃ¡s usado (24h)
+              Nivel más usado (24h)
             </CardTitle>
             <BarChart2 className="h-4 w-4 text-muted-foreground" aria-hidden />
           </CardHeader>
@@ -436,10 +436,10 @@ export default function BrainHomePage({ params }: BrainHomePageProps) {
         </Card>
       </div>
 
-      {/* â”€â”€ Accesos rÃ¡pidos (excluye Home â€” ya estamos aquÃ­) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-      <section aria-label="Accesos rÃ¡pidos a secciones Brain">
+      {/* ── Accesos rápidos (excluye Home — ya estamos aquí) ─────────────── */}
+      <section aria-label="Accesos rápidos a secciones Brain">
         <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Accesos rÃ¡pidos
+          Accesos rápidos
         </h2>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {QUICK_ACCESS_ITEMS.map(({ label, Icon, routeKey }) => (
