@@ -131,6 +131,5 @@ pytest (asyncio_mode=auto) | Config: surfsense_backend/pyproject.toml [tool.pyte
 - LLM_PROVIDER=hybrid: Ollama para contextos cortos, Claude por encima de HYBRID_THRESHOLD tokens.
 
 ## Referencias
-- Arquitectura/Surfsense/00-indice.md — módulos M1–M7
 - surfsense_backend/.env.example — variables de entorno
 - surfsense_backend/pyproject.toml — dependencias y config
