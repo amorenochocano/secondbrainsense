@@ -41,6 +41,10 @@ export const BRAIN_ENDPOINTS = {
   DELETE_DOCUMENT:  (source: string) => `${BRAIN_API_PREFIX}/document/${encodeURIComponent(source)}`,
   /** Ingestión de URL */
   INGEST_URL:       `${BRAIN_API_PREFIX}/ingest/url`,
+  /** Ingestión de fichero subido (multipart/form-data) */
+  INGEST_FILE:      `${BRAIN_API_PREFIX}/ingest/file`,
+  /** Ingestión desde ruta local del servidor */
+  INGEST_PATH:      `${BRAIN_API_PREFIX}/ingest/path`,
   /** Stream SSE de fases de ingesta */
   INGEST_STREAM:    (jobId: string) => `${BRAIN_API_PREFIX}/ingest/stream?job_id=${encodeURIComponent(jobId)}`,
   /** Configuración activa del admin Brain */
@@ -172,23 +176,27 @@ export const BRAIN_SCOPE_COLORS: Record<BrainScope, string> = {
 // Fuente: _MODEL_RECOMMENDATION de brain_ingest.py
 // ─────────────────────────────────────────────────────────────────────────────
 
-export const BRAIN_MODEL_RECOMMENDATION: Record<string, string> = {
+/** Recomendación de modelo por extensión de fichero */
+export const BRAIN_MODEL_RECOMMENDATION_BY_EXT: Record<string, string> = {
   ".py":    "qwen2.5-coder:3b",
   ".sql":   "qwen2.5-coder:3b",
   ".ipynb": "qwen2.5-coder:3b",
   ".json":  "qwen2.5-coder:3b",
   ".xml":   "qwen2.5-coder:3b",
-  ".drawio":"deepseek-r1",
-  ".xlsx":  "deepseek-r1",
-  ".md":    "deepseek-r1",
-  ".pdf":   "llama3.2:3b",
-  ".docx":  "llama3.2:3b",
-  ".pptx":  "llama3.2:3b",
-  ".txt":   "llama3.2:3b",
+  ".drawio":"deepseek-r1:14b",
+  ".xlsx":  "deepseek-r1:14b",
+  ".md":    "deepseek-r1:14b",
+  ".pdf":   "deepseek-r1:14b",
+  ".docx":  "deepseek-r1:14b",
+  ".pptx":  "deepseek-r1:14b",
+  ".txt":   "deepseek-r1:14b",
 };
 
 /** Modelo de síntesis por defecto cuando la extensión no está en el mapa */
-export const BRAIN_DEFAULT_MODEL = "llama3.2:3b" as const;
+export const BRAIN_DEFAULT_MODEL = "deepseek-r1:14b" as const;
+
+/** @deprecated — usar BRAIN_MODEL_RECOMMENDATION_BY_EXT + BRAIN_DEFAULT_MODEL */
+export const BRAIN_MODEL_RECOMMENDATION = BRAIN_MODEL_RECOMMENDATION_BY_EXT;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Routing preview — colecciones destino por extensión

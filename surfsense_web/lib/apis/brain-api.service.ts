@@ -230,6 +230,47 @@ class BrainApiService {
   };
 
   /**
+   * Ingesta de fichero subido por el usuario (multipart/form-data).
+   */
+  ingestFile = async (
+    file: File,
+    searchSpaceId: number,
+    model?: string,
+  ): Promise<IngestJobResponse> => {
+    log.info("Iniciando ingesta de fichero", { name: file.name, size: file.size, searchSpaceId, model });
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("search_space_id", String(searchSpaceId));
+    if (model) formData.append("model", model);
+
+    const url = `${baseApiService.baseUrl}${BRAIN_ENDPOINTS.INGEST_FILE}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${baseApiService.bearerToken}` },
+      body: formData,
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => response.statusText);
+      throw new Error(`Error subiendo fichero: ${detail}`);
+    }
+    return ingestJobResponse.parse(await response.json());
+  };
+
+  /**
+   * Ingesta de fichero desde ruta local del servidor.
+   */
+  ingestPath = async (
+    localPath: string,
+    searchSpaceId: number,
+    model?: string,
+  ): Promise<IngestJobResponse> => {
+    log.info("Iniciando ingesta por ruta local", { localPath, searchSpaceId, model });
+    return baseApiService.post(BRAIN_ENDPOINTS.INGEST_PATH, ingestJobResponse, {
+      body: { local_path: localPath, search_space_id: searchSpaceId, ...(model ? { model } : {}) },
+    });
+  };
+
+  /**
    * Subscripción SSE al progreso de un job de ingesta.
    * Usa fetch + ReadableStream en lugar de EventSource para soportar
    * la cabecera Authorization: Bearer.

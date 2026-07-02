@@ -21,6 +21,7 @@ Decisión de diseño:
   No se crea un cliente Qdrant nuevo por petición — se reutiliza la conexión existente.
 """
 import logging
+import os
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -31,7 +32,42 @@ from app.users import current_active_user
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/admin/qdrant", tags=["admin-qdrant"])
+router = APIRouter(prefix="/admin", tags=["admin"])
+
+OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+
+
+@router.get("/ollama-models", summary="Lista de modelos Ollama disponibles")
+async def list_ollama_models(
+    current_user: User = Depends(current_active_user),
+) -> dict:
+    """
+    Devuelve la lista de modelos instalados en Ollama.
+    Filtra los modelos de embedding (nomic, bge, all-minilm, qwen3-embedding)
+    para mostrar solo modelos de generación aptos para síntesis.
+    """
+    try:
+        import ollama
+        client = ollama.Client(host=OLLAMA_HOST)
+        raw = client.list()
+        # raw.models es una lista de objetos con atributo .model o .name
+        all_names = []
+        for m in (raw.models if hasattr(raw, "models") else raw.get("models", [])):
+            name = getattr(m, "model", None) or getattr(m, "name", None) or (m.get("model") if isinstance(m, dict) else None)
+            if name:
+                all_names.append(name)
+        # Excluir modelos de embedding puros
+        EMBED_PATTERNS = ("nomic-embed", "bge-", "all-minilm", "qwen3-embedding", "qwen2-embedding")
+        gen_models = [n for n in all_names if not any(p in n.lower() for p in EMBED_PATTERNS)]
+        return {"models": [{"name": n} for n in sorted(gen_models)]}
+    except Exception as exc:
+        logger.warning("[admin] list_ollama_models error: %s", exc)
+        return {"models": []}
+
+
+# ─── Sub-router Qdrant (prefijo anterior) ─────────────────────────────────────
+# Mantenemos las rutas Qdrant bajo /admin/qdrant por compatibilidad
+_qdrant_router = APIRouter(prefix="/qdrant", tags=["admin-qdrant"])
 
 
 def _get_current_admin_user(current_user: User = Depends(current_active_user)) -> User:
@@ -47,7 +83,7 @@ def _get_current_admin_user(current_user: User = Depends(current_active_user)) -
     return current_user
 
 
-@router.get(
+@_qdrant_router.get(
     "/collections",
     summary="Estado de las colecciones Qdrant",
     description=(
@@ -105,7 +141,7 @@ async def list_qdrant_collections(
     return result
 
 
-@router.post(
+@_qdrant_router.post(
     "/collection/{collection_name}/recreate",
     summary="Recrear una colección Qdrant",
     description=(
@@ -168,7 +204,7 @@ async def recreate_collection(
     return {"status": "recreated", "collection": collection_name}
 
 
-@router.delete(
+@_qdrant_router.delete(
     "/document/{source}",
     summary="Borrar vectores de un documento",
     description=(
@@ -208,3 +244,7 @@ async def delete_document_vectors(
         source, search_space_id,
     )
     return {"status": "deleted", "source": source, "search_space_id": search_space_id}
+
+
+# Qdrant sub-router bajo /admin/qdrant/*
+router.include_router(_qdrant_router)

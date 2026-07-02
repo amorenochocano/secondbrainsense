@@ -408,7 +408,7 @@ export default function BrainAdminPage() {
                     </SelectTrigger>
                     <SelectContent>
                       {ollamaModels.map((m) => (
-                        <SelectItem key={m} value={m}>{m}</SelectItem>
+                        <SelectItem key={m.name} value={m.name}>{m.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -500,7 +500,7 @@ export default function BrainAdminPage() {
                       </SelectTrigger>
                       <SelectContent>
                         {ollamaModels.map((m) => (
-                          <SelectItem key={m} value={m}>{m}</SelectItem>
+                          <SelectItem key={m.name} value={m.name}>{m.name}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>

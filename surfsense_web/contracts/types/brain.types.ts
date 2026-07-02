@@ -231,7 +231,7 @@ export type IngestPhaseEvent = z.infer<typeof ingestPhaseEvent>;
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const ollamaModelsResponse = z.object({
-  models: z.array(z.string()),
+  models: z.array(z.object({ name: z.string() })),
 });
 export type OllamaModelsResponse = z.infer<typeof ollamaModelsResponse>;
 

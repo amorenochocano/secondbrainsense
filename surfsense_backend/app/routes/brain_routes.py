@@ -59,7 +59,7 @@ import time
 import uuid
 
 import redis as redis_lib
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from qdrant_client import models as qdrant_models
@@ -1677,6 +1677,308 @@ async def _run_ingest_pipeline(
         await _emit("qdrant", "error", detail=str(exc))
     finally:
         # None = señal de fin de stream para el generador SSE
+        await queue.put(None)
+
+
+@router.post("/ingest/file")
+async def ingest_file(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    search_space_id: int = Form(...),
+    model: str | None = Form(None),
+    provider: str | None = Form(None),
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    """
+    Ingesta de fichero subido por el usuario (multipart/form-data).
+
+    El fichero se guarda temporalmente, se procesa con el extractor adecuado
+    según la extensión y sigue el mismo pipeline de 4 fases que /ingest/url.
+    """
+    await _require_space_access(search_space_id, db, current_user)
+    _cleanup_stale_jobs()
+
+    filename = file.filename or "upload"
+    job_id = str(uuid.uuid4())
+    queue: asyncio.Queue = asyncio.Queue()
+    _ingest_jobs[job_id] = {"queue": queue, "created_at": time.monotonic()}
+
+    _ingest_logger.info(
+        "[ingest_file] job=%s filename='%s' space=%d user=%s",
+        job_id, filename, search_space_id, current_user.id,
+    )
+
+    content = await file.read()
+
+    background_tasks.add_task(
+        _run_ingest_file_pipeline,
+        filename=filename,
+        content=content,
+        search_space_id=search_space_id,
+        model=model,
+        provider=provider,
+        queue=queue,
+        job_id=job_id,
+    )
+
+    return {"job_id": job_id, "status": "queued", "background": True}
+
+
+async def _run_ingest_file_pipeline(
+    filename: str,
+    content: bytes,
+    search_space_id: int,
+    model: str | None,
+    provider: str | None,
+    queue: asyncio.Queue,
+    job_id: str,
+) -> None:
+    """Pipeline de 4 fases para ingesta de fichero subido."""
+    import tempfile
+    import pathlib
+    import tempfile as _tempfile
+    from app.brain.extractors.factory import ExtractorFactory
+    from app.brain.synthesizer import DocumentSynthesizer
+    from app.brain.ingest_router import IngestRouter
+    from app.brain.writer import BrainWriter
+
+    async def _emit(phase: str, status: str, chunks: int = 0, detail: str = "") -> None:
+        event = {"phase": phase, "status": status, "chunks": chunks, "detail": detail}
+        _ingest_logger.debug("[ingest_file] job=%s event=%s", job_id, event)
+        await queue.put(event)
+
+    suffix = pathlib.Path(filename).suffix.lower() or ".bin"
+    tmp_path = None
+
+    try:
+        with _tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+
+        # ── FASE 1: Extracción ────────────────────────────────────────────────
+        await _emit("extraction", "running")
+
+        def _extract():
+            return ExtractorFactory.extract(tmp_path)
+
+        blocks = await asyncio.to_thread(_extract)
+        if not blocks:
+            await _emit("extraction", "error", detail="Sin contenido extraíble del fichero")
+            return
+        await _emit("extraction", "ok", chunks=len(blocks))
+
+        # ── FASE 2: Síntesis ──────────────────────────────────────────────────
+        await _emit("synthesis", "running")
+        synth_model    = model    or os.getenv("SYNTHESIS_MODEL",    "qwen2.5-coder:3b")
+        synth_provider = provider or os.getenv("BRAIN_LLM_PROVIDER", "ollama")
+
+        def _synthesize():
+            full_text = "\n\n".join(b.get("content", "") for b in blocks if b.get("content")).strip()
+            result = DocumentSynthesizer().synthesize(
+                source=filename,
+                file_type=suffix.lstrip("."),
+                full_text=full_text,
+                blocks=blocks,
+                model=synth_model,
+                provider=synth_provider,
+                ingest_metadata={"ingest_origin": "file_upload", "ingest_path": filename},
+            )
+            return result.get("md_content", "") if isinstance(result, dict) else str(result)
+
+        new_md = await asyncio.to_thread(_synthesize)
+        if not new_md.strip():
+            await _emit("synthesis", "error", detail="El sintetizador devolvió contenido vacío")
+            return
+        await asyncio.to_thread(BrainWriter().write, filename, new_md)
+        await _emit("synthesis", "ok")
+
+        # ── FASE 3: Chunking + vectorización ─────────────────────────────────
+        await _emit("chunking", "running")
+
+        def _vectorize():
+            results = IngestRouter(QdrantManager.get_instance().client).route(
+                md_content=new_md,
+                blocks=blocks,
+                source=filename,
+                search_space_id=str(search_space_id),
+            )
+            if isinstance(results, dict):
+                return sum(v.get("chunks_created", 0) for v in results.values() if isinstance(v, dict))
+            return 0
+
+        total_chunks = await asyncio.to_thread(_vectorize)
+        await _emit("chunking", "ok", chunks=total_chunks)
+
+        # ── FASE 4: Vectorización Qdrant confirmada ───────────────────────────
+        await _emit("vectorization", "ok", chunks=total_chunks)
+        _ingest_logger.info(
+            "[ingest_file] job=%s DONE filename='%s' chunks=%d space=%d",
+            job_id, filename, total_chunks, search_space_id,
+        )
+
+    except Exception as exc:
+        _ingest_logger.error(
+            "[ingest_file] job=%s ERROR filename='%s': %s", job_id, filename, exc, exc_info=True,
+        )
+        await _emit("vectorization", "error", detail=str(exc))
+    finally:
+        import os as _os
+        try:
+            _os.unlink(tmp_path)
+        except Exception:
+            pass
+        await queue.put(None)
+
+
+@router.post("/ingest/path")
+async def ingest_local_path(
+    body: "IngestPathRequest",
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    """
+    Ingesta de fichero o directorio por ruta local del servidor.
+
+    Útil en despliegues on-premise donde los documentos ya residen
+    en el sistema de ficheros del servidor o en un volumen montado.
+    """
+    from app.brain.extractors.factory import ExtractorFactory
+    from app.brain.synthesizer import DocumentSynthesizer
+    from app.brain.ingest_router import IngestRouter
+    from app.brain.writer import BrainWriter
+    import pathlib
+
+    await _require_space_access(body.search_space_id, db, current_user)
+    _cleanup_stale_jobs()
+
+    path_obj = pathlib.Path(body.local_path)
+    if not path_obj.exists():
+        raise HTTPException(status_code=400, detail=f"Ruta no encontrada: {body.local_path}")
+
+    job_id = str(uuid.uuid4())
+    queue: asyncio.Queue = asyncio.Queue()
+    _ingest_jobs[job_id] = {"queue": queue, "created_at": time.monotonic()}
+
+    _ingest_logger.info(
+        "[ingest_path] job=%s path='%s' space=%d user=%s",
+        job_id, body.local_path, body.search_space_id, current_user.id,
+    )
+
+    background_tasks.add_task(
+        _run_ingest_path_pipeline,
+        local_path=body.local_path,
+        search_space_id=body.search_space_id,
+        model=body.model,
+        provider=body.provider,
+        queue=queue,
+        job_id=job_id,
+    )
+
+    return {"job_id": job_id, "status": "queued", "background": True}
+
+
+class IngestPathRequest(BaseModel):
+    """Body de POST /ingest/path."""
+    local_path: str
+    search_space_id: int
+    model: str | None = None
+    provider: str | None = None
+
+
+async def _run_ingest_path_pipeline(
+    local_path: str,
+    search_space_id: int,
+    model: str | None,
+    provider: str | None,
+    queue: asyncio.Queue,
+    job_id: str,
+) -> None:
+    """Pipeline de 4 fases para ingesta desde ruta local."""
+    import pathlib
+    from app.brain.extractors.factory import ExtractorFactory
+    from app.brain.synthesizer import DocumentSynthesizer
+    from app.brain.ingest_router import IngestRouter
+    from app.brain.writer import BrainWriter
+
+    async def _emit(phase: str, status: str, chunks: int = 0, detail: str = "") -> None:
+        event = {"phase": phase, "status": status, "chunks": chunks, "detail": detail}
+        _ingest_logger.debug("[ingest_path] job=%s event=%s", job_id, event)
+        await queue.put(event)
+
+    path_obj = pathlib.Path(local_path)
+    filename = path_obj.name
+    suffix   = path_obj.suffix.lower()
+
+    try:
+        # ── FASE 1: Extracción ────────────────────────────────────────────────
+        await _emit("extraction", "running")
+
+        def _extract():
+            return ExtractorFactory.extract(local_path)
+
+        blocks = await asyncio.to_thread(_extract)
+        if not blocks:
+            await _emit("extraction", "error", detail="Sin contenido extraíble del fichero")
+            return
+        await _emit("extraction", "ok", chunks=len(blocks))
+
+        # ── FASE 2: Síntesis ──────────────────────────────────────────────────
+        await _emit("synthesis", "running")
+        synth_model    = model    or os.getenv("SYNTHESIS_MODEL",    "qwen2.5-coder:3b")
+        synth_provider = provider or os.getenv("BRAIN_LLM_PROVIDER", "ollama")
+
+        def _synthesize():
+            full_text = "\n\n".join(b.get("content", "") for b in blocks if b.get("content")).strip()
+            result = DocumentSynthesizer().synthesize(
+                source=local_path,
+                file_type=suffix.lstrip("."),
+                full_text=full_text,
+                blocks=blocks,
+                model=synth_model,
+                provider=synth_provider,
+                ingest_metadata={"ingest_origin": "local", "ingest_path": local_path},
+            )
+            return result.get("md_content", "") if isinstance(result, dict) else str(result)
+
+        new_md = await asyncio.to_thread(_synthesize)
+        if not new_md.strip():
+            await _emit("synthesis", "error", detail="El sintetizador devolvió contenido vacío")
+            return
+        await asyncio.to_thread(BrainWriter().write, local_path, new_md)
+        await _emit("synthesis", "ok")
+
+        # ── FASE 3: Chunking + vectorización ─────────────────────────────────
+        await _emit("chunking", "running")
+
+        def _vectorize():
+            results = IngestRouter(QdrantManager.get_instance().client).route(
+                md_content=new_md,
+                blocks=blocks,
+                source=local_path,
+                search_space_id=str(search_space_id),
+            )
+            if isinstance(results, dict):
+                return sum(v.get("chunks_created", 0) for v in results.values() if isinstance(v, dict))
+            return 0
+
+        total_chunks = await asyncio.to_thread(_vectorize)
+        await _emit("chunking", "ok", chunks=total_chunks)
+
+        # ── FASE 4: Vectorización Qdrant confirmada ───────────────────────────
+        await _emit("vectorization", "ok", chunks=total_chunks)
+        _ingest_logger.info(
+            "[ingest_path] job=%s DONE path='%s' chunks=%d space=%d",
+            job_id, local_path, total_chunks, search_space_id,
+        )
+
+    except Exception as exc:
+        _ingest_logger.error(
+            "[ingest_path] job=%s ERROR path='%s': %s", job_id, local_path, exc, exc_info=True,
+        )
+        await _emit("vectorization", "error", detail=str(exc))
+    finally:
         await queue.put(None)
 
 
