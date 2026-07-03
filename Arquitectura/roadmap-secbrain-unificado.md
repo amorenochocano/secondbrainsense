@@ -6,6 +6,8 @@
 
 ---
 
+
+
 ## Resumen ejecutivo
 
 Este documento unifica todos los cambios pendientes en un único plan secuencial. El trabajo se organiza en **dos tracks paralelos** que convergen en la Fase 4 (chat unificado):
@@ -95,6 +97,21 @@ Conector descarga fichero
 Pipeline compartido: UniversalCleaner → Synthesizer → Writer → IngestRouter → Qdrant
 ```
 
+---
+
+## Orden secuencial recomendado:
+
+BUG-1 — vocabulary CRUD (bloqueante para todo lo del Brain)
+BUG-2 — ZodError ollama-models (10 minutos, limpieza de cache)
+UI-3 — contraste /brain/* (visual, bajo riesgo)
+UX-2 — eliminar Credits del sidebar (bajo esfuerzo)
+UX-1 — unificar sidebar (depende de que UX-2 ya esté limpio)
+F0 — FallbackExtractor (backend puro, sin dependencias)
+F1 — transporte de conectores (depende de F0)
+F3 — Brain como LangGraph Tool (depende de BUG-1, paralelizable con F1/F2 pero en secuencial va aquí)
+F2 — UI ingesta con conectores (depende de F1)
+F4 — chat unificado UI (depende de F3)
+F5 — botón "Ingestar en Brain" desde chat (depende de F1 + F4)
 ---
 
 ## Bloque 0 — Saneamiento (bugs + UX/UI)
