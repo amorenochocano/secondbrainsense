@@ -21,6 +21,7 @@ from .txt import TxtExtractor
 from .confluence import ConfluenceExtractor
 from .jira_ticket import JiraTicketExtractor
 from .github_file import GitHubFileExtractor
+from .fallback import FallbackExtractor
 
 
 class ExtractorFactory:
@@ -62,15 +63,19 @@ class ExtractorFactory:
 
     @classmethod
     def get(cls, filename: str) -> BaseExtractor:
-        """Devuelve una instancia del extractor para el formato dado."""
+        """Devuelve una instancia del extractor para el formato dado.
+        Para formatos no reconocidos devuelve FallbackExtractor en lugar de lanzar excepción.
+        """
         ext = Path(filename).suffix.lower()
         extractor_class = cls._MAP.get(ext)
         if not extractor_class:
-            raise ValueError(
-                f"Formato no soportado: {ext}. "
-                f"Soportados: {list(cls._MAP.keys())}"
-            )
+            return FallbackExtractor()
         return extractor_class()
+
+    @classmethod
+    def is_known(cls, ext: str) -> bool:
+        """True si existe un extractor específico para la extensión dada."""
+        return ext.lower() in cls._MAP
 
     @classmethod
     def extract(cls, filename: str) -> list[dict]:
