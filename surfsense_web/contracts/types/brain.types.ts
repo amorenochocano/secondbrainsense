@@ -331,6 +331,40 @@ export const brainVocabularyRecord = z.object({
 export type BrainVocabularyRecord = z.infer<typeof brainVocabularyRecord>;
 export const brainVocabularyListResponse = z.array(brainVocabularyRecord);
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/v1/brain/connectors/available
+// POST /api/v1/brain/ingest/connector/{connector_type}
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Familia del conector: storage (ficheros), record (entidades), chat (mensajes) */
+export const connectorFamilySchema = z.enum(["storage", "record", "chat"]);
+export type ConnectorFamily = z.infer<typeof connectorFamilySchema>;
+
+/** Un conector disponible para ingesta Brain */
+export const availableConnectorSchema = z.object({
+  connector_id:   z.number().int(),
+  connector_type: z.string(),
+  name:           z.string(),
+  family:         connectorFamilySchema,
+  ok:             z.boolean(),
+  needs_reauth:   z.boolean().default(false),
+});
+export type AvailableConnector = z.infer<typeof availableConnectorSchema>;
+
+export const availableConnectorsResponse = z.array(availableConnectorSchema);
+export type AvailableConnectorsResponse = z.infer<typeof availableConnectorsResponse>;
+
+/** Request para ingestar un ítem de conector */
+export const ingestConnectorRequest = z.object({
+  connector_id:    z.number().int(),
+  item_id:         z.string().min(1),
+  filename:        z.string().min(1),
+  search_space_id: z.number().int().positive(),
+  model:           z.string().optional(),
+  provider:        z.string().optional(),
+});
+export type IngestConnectorRequest = z.infer<typeof ingestConnectorRequest>;
+
 /** Respuesta del lookup de alias → canónica */
 export const vocabularyLookupResponse = z.object({
   canonical_tag:  z.string().optional().nullable(),

@@ -63,6 +63,10 @@ export const BRAIN_ENDPOINTS = {
   ADMIN_VOCABULARY: `${BRAIN_API_PREFIX}/admin/vocabulary`,
   /** Clasificar un formato de fichero */
   ADMIN_CLASSIFY:   `${BRAIN_API_PREFIX}/admin/classify`,
+  /** Conectores disponibles del usuario para ingesta Brain */
+  CONNECTORS_AVAILABLE: `${BRAIN_API_PREFIX}/connectors/available`,
+  /** Ingesta desde conector externo (storage/record/chat) */
+  INGEST_CONNECTOR: (connectorType: string) => `${BRAIN_API_PREFIX}/ingest/connector/${encodeURIComponent(connectorType)}`,
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────

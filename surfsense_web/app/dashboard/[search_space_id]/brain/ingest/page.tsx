@@ -26,6 +26,9 @@ import {
   FolderOpen,
   Upload,
   Server,
+  Plug,
+  RefreshCw,
+  AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -52,6 +55,7 @@ import {
   BRAIN_INGEST_EXTENSION_CATEGORY,
   type IngestCategory,
 } from "@/lib/brain/constants";
+import type { AvailableConnector } from "@/contracts/types/brain.types";
 
 const log = brainLogger("BrainIngestPage");
 
@@ -289,6 +293,221 @@ function MonitorTable({ spaceId, onOpenWiki }: {
   );
 }
 
+// ─── Sub-componente: badge de formato ────────────────────────────────────────
+
+function FormatBadge({ isKnown }: { isKnown: boolean }) {
+  return isKnown ? (
+    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+      <CheckCircle2 className="h-2.5 w-2.5" /> Extractor nativo
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
+      <AlertCircle className="h-2.5 w-2.5" /> Fallback
+    </span>
+  );
+}
+
+// ─── Sub-componente: tab Conector ────────────────────────────────────────────
+
+interface ConnectorTabProps {
+  spaceId: string;
+  selectedModel: string;
+  isIngesting: boolean;
+  onStartJob: (jobId: string) => void;
+}
+
+function ConnectorTab({ spaceId, selectedModel, isIngesting, onStartJob }: ConnectorTabProps) {
+  const [selectedConnector, setSelectedConnector] = useState<AvailableConnector | null>(null);
+  const [itemId, setItemId] = useState("");
+  const [filename, setFilename] = useState("");
+  const [isKnownFormat, setIsKnownFormat] = useState<boolean | null>(null);
+
+  const { data: connectors, isLoading, isError, refetch, isFetching } = useQuery({
+    queryKey: ["brain", "connectors-available", Number(spaceId)],
+    queryFn: () => brainApiService.getAvailableConnectors(Number(spaceId)),
+    staleTime: 60_000,
+  });
+
+  // Inferir is_known del nombre de fichero introducido
+  const handleFilenameChange = (value: string) => {
+    setFilename(value);
+    const ext = extractExtension(value);
+    if (ext) {
+      // Estimamos conocido si tiene extractor nativo (PDF, DOCX, MD, etc.)
+      // La lista de extensiones conocidas la inferimos por las más comunes.
+      // El backend devolverá el estado real — aquí solo es indicativo.
+      const KNOWN_EXTS = new Set([
+        ".pdf", ".docx", ".xlsx", ".pptx", ".html", ".htm", ".py", ".sql",
+        ".ipynb", ".xml", ".drawio", ".json", ".md", ".markdown", ".csv", ".txt",
+        ".confluence", ".jira_ticket", ".github_file",
+      ]);
+      setIsKnownFormat(KNOWN_EXTS.has(ext));
+    } else {
+      setIsKnownFormat(null);
+    }
+  };
+
+  const ingestMutation = useMutation({
+    mutationFn: () => {
+      if (!selectedConnector) throw new Error("Selecciona un conector");
+      if (!itemId.trim())     throw new Error("Introduce el ID del ítem");
+      if (!filename.trim())   throw new Error("Introduce el nombre del fichero");
+      return brainApiService.ingestConnector(selectedConnector.connector_type, {
+        connector_id:    selectedConnector.connector_id,
+        item_id:         itemId.trim(),
+        filename:        filename.trim(),
+        search_space_id: Number(spaceId),
+        model:           selectedModel === "auto" ? undefined : selectedModel,
+      });
+    },
+    onSuccess: (res) => { onStartJob(res.job_id); },
+    onError: (err: Error) => toast.error("Error al iniciar ingesta de conector", { description: err.message }),
+  });
+
+  const canIngest = !!selectedConnector && !!itemId.trim() && !!filename.trim() && !isIngesting && !ingestMutation.isPending;
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12 gap-2 text-slate-400 text-sm">
+        <Loader2 className="h-4 w-4 animate-spin" /> Cargando conectores…
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
+        <AlertCircle className="h-6 w-6 text-red-400" />
+        <p className="text-sm text-red-400">Error al cargar los conectores.</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-1.5 border-slate-600 text-slate-300">
+          <RefreshCw className="h-3.5 w-3.5" /> Reintentar
+        </Button>
+      </div>
+    );
+  }
+
+  const available = (connectors ?? []).filter((c) => c.ok);
+  const unavailable = (connectors ?? []).filter((c) => !c.ok);
+
+  return (
+    <div className="space-y-4">
+      {/* Selector de conector */}
+      <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Plug className="h-4 w-4 text-violet-400" />
+            <h2 className="text-sm font-semibold text-slate-200">Conector externo</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-300 transition-colors"
+          >
+            <RefreshCw className={cn("h-3 w-3", isFetching && "animate-spin")} />
+            Actualizar
+          </button>
+        </div>
+
+        {available.length === 0 && unavailable.length === 0 ? (
+          <p className="text-xs text-slate-400">
+            No hay conectores configurados. Añade uno desde la sección de fuentes del espacio.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {available.map((c) => (
+              <button
+                key={c.connector_id}
+                type="button"
+                onClick={() => { setSelectedConnector(c); setItemId(""); setFilename(""); setIsKnownFormat(null); }}
+                className={cn(
+                  "w-full flex items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition-colors",
+                  selectedConnector?.connector_id === c.connector_id
+                    ? "border-violet-500/60 bg-violet-500/10 text-slate-100"
+                    : "border-slate-700/40 bg-slate-900/30 text-slate-300 hover:border-slate-600 hover:bg-slate-800/40",
+                )}
+              >
+                <div className="flex items-center gap-2">
+                  <Plug className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                  <span className="font-medium">{c.name}</span>
+                  <span className="text-[10px] text-slate-500 font-mono">{c.connector_type}</span>
+                </div>
+                <Badge variant="outline" className="text-[10px] px-1.5 border-slate-600 text-slate-400">
+                  {c.family}
+                </Badge>
+              </button>
+            ))}
+            {unavailable.map((c) => (
+              <div
+                key={c.connector_id}
+                className="w-full flex items-center justify-between rounded-lg border border-slate-700/30 bg-slate-900/20 px-3 py-2 text-sm opacity-50"
+              >
+                <div className="flex items-center gap-2">
+                  <Plug className="h-3.5 w-3.5 text-slate-500 shrink-0" />
+                  <span className="text-slate-400">{c.name}</span>
+                </div>
+                <span className="text-[10px] text-red-400">requiere reautenticación</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Formulario de ítem — visible solo cuando hay conector seleccionado */}
+      {selectedConnector && (
+        <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-5 space-y-4">
+          <div className="flex items-center gap-2">
+            <FileText className="h-4 w-4 text-violet-400" />
+            <h2 className="text-sm font-semibold text-slate-200">
+              Ítem a ingestar
+              <span className="ml-2 text-xs font-normal text-slate-500 font-mono">{selectedConnector.name}</span>
+            </h2>
+          </div>
+
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-xs text-slate-400">ID del ítem (file_id, item_id, thread_id…)</label>
+              <Input
+                placeholder="abc123-def456"
+                value={itemId}
+                onChange={(e) => setItemId(e.target.value)}
+                className="font-mono text-sm bg-slate-900/50 border-slate-700 focus:border-violet-500 text-slate-200 placeholder:text-slate-600"
+                disabled={isIngesting}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs text-slate-400">Nombre de fichero (con extensión)</label>
+              <div className="flex items-center gap-2">
+                <Input
+                  placeholder="documento.pdf"
+                  value={filename}
+                  onChange={(e) => handleFilenameChange(e.target.value)}
+                  className="font-mono text-sm bg-slate-900/50 border-slate-700 focus:border-violet-500 text-slate-200 placeholder:text-slate-600"
+                  disabled={isIngesting}
+                />
+                {isKnownFormat !== null && <FormatBadge isKnown={isKnownFormat} />}
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1">
+                Badge verde: extractor nativo. Badge amarillo: fallback (se procesará como texto o metadata binaria).
+              </p>
+            </div>
+          </div>
+
+          <Button
+            onClick={() => ingestMutation.mutate()}
+            disabled={!canIngest}
+            className="gap-2 bg-violet-600 hover:bg-violet-500 text-white"
+          >
+            {ingestMutation.isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Iniciando…</> :
+             isIngesting ? <><Loader2 className="h-4 w-4 animate-spin" /> Procesando…</> :
+             <><ArrowRight className="h-4 w-4" /> Ingestar ítem</>}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function BrainIngestPage() {
@@ -447,15 +666,18 @@ export default function BrainIngestPage() {
 
           {/* Sub-tabs de modo de ingesta */}
           <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); resetIngest(); }} className="w-full">
-            <TabsList className="grid w-full grid-cols-3 max-w-md">
-              <TabsTrigger value="url"  className="gap-1.5 text-xs">
+            <TabsList className="grid w-full grid-cols-4 max-w-lg">
+              <TabsTrigger value="url"       className="gap-1.5 text-xs">
                 <Link2 className="h-3.5 w-3.5" /> URL
               </TabsTrigger>
-              <TabsTrigger value="file" className="gap-1.5 text-xs">
+              <TabsTrigger value="file"      className="gap-1.5 text-xs">
                 <FileText className="h-3.5 w-3.5" /> Fichero
               </TabsTrigger>
-              <TabsTrigger value="path" className="gap-1.5 text-xs">
+              <TabsTrigger value="path"      className="gap-1.5 text-xs">
                 <Server className="h-3.5 w-3.5" /> Ruta local
+              </TabsTrigger>
+              <TabsTrigger value="connector" className="gap-1.5 text-xs">
+                <Plug className="h-3.5 w-3.5" /> Conector
               </TabsTrigger>
             </TabsList>
 
@@ -619,6 +841,16 @@ export default function BrainIngestPage() {
                   </Button>
                 </div>
               </div>
+            </TabsContent>
+
+            {/* ── Conector ─────────────────────────────────────────────────────── */}
+            <TabsContent value="connector" className="mt-4">
+              <ConnectorTab
+                spaceId={spaceId}
+                selectedModel={selectedModel}
+                isIngesting={isIngesting}
+                onStartJob={startJob}
+              />
             </TabsContent>
           </Tabs>
 

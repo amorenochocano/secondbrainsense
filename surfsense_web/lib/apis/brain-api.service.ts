@@ -12,6 +12,10 @@
  */
 
 import {
+  availableConnectorsResponse,
+  type AvailableConnectorsResponse,
+  ingestConnectorRequest,
+  type IngestConnectorRequest,
   adminConfigResponse,
   type AdminConfigResponse,
   brainDomainListResponse,
@@ -354,7 +358,40 @@ class BrainApiService {
     };
   };
 
-  // ─── Admin Brain ──────────────────────────────────────────────────────────
+  // ─── Conectores ───────────────────────────────────────────────────────────
+
+  /** Conectores del usuario disponibles para ingesta Brain (token válido + familia soportada). */
+  getAvailableConnectors = async (searchSpaceId: number): Promise<AvailableConnectorsResponse> => {
+    log.debug("Obteniendo conectores disponibles", { searchSpaceId });
+    return baseApiService.get(
+      `${BRAIN_ENDPOINTS.CONNECTORS_AVAILABLE}?search_space_id=${searchSpaceId}`,
+      availableConnectorsResponse,
+    );
+  };
+
+  /**
+   * Inicia la ingesta de un ítem de conector externo.
+   * Devuelve job_id para subscribirse al stream SSE (usar streamIngestJob).
+   */
+  ingestConnector = async (
+    connectorType: string,
+    request: IngestConnectorRequest,
+  ): Promise<IngestJobResponse> => {
+    const parsed = ingestConnectorRequest.parse(request);
+    log.info("Iniciando ingesta de conector", {
+      connector_type: connectorType,
+      connector_id: parsed.connector_id,
+      item_id: parsed.item_id,
+      filename: parsed.filename,
+    });
+    return baseApiService.post(
+      BRAIN_ENDPOINTS.INGEST_CONNECTOR(connectorType),
+      ingestJobResponse,
+      { body: parsed },
+    );
+  };
+
+  // ─── Admin Brain ───────────────────────────────────────────────────────────
 
   /** Obtiene la configuración activa del pipeline Brain */
   getAdminConfig = async (): Promise<AdminConfigResponse> => {
