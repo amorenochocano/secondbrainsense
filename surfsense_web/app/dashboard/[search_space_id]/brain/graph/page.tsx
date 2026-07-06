@@ -589,7 +589,7 @@ export default function BrainGraphPage() {
       {/* ── Cuerpo: canvas + panel lateral ────────────────────────────── */}
       <div className="flex flex-1 overflow-hidden">
         {/* Canvas del grafo */}
-        <div ref={containerRef} className="relative flex-1 bg-[#0d0d0f] overflow-hidden">
+        <div ref={containerRef} className="relative flex-1 bg-background overflow-hidden">
           {isLoading ? (
             <div className="flex h-full w-full items-center justify-center">
               <div className="flex flex-col items-center gap-3">
@@ -610,10 +610,10 @@ export default function BrainGraphPage() {
                 graphData={graphData}
                 nodeId="id"
                 nodeLabel={(node: GraphNodeFG) =>
-                  `<div style="background:#1f2937;border:1px solid #374151;padding:6px 10px;border-radius:8px;font-size:12px;max-width:220px">
-                    <strong style="color:#f9fafb">${node.label}</strong>
-                    ${node.domain ? `<br/><span style="color:#9ca3af">${node.domain}</span>` : ""}
-                    ${node.summary ? `<br/><span style="color:#6b7280;font-size:11px">${node.summary.slice(0, 80)}…</span>` : ""}
+                  `<div style="background:#ffffff;border:1px solid #e2e8f0;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:6px 10px;border-radius:8px;font-size:12px;max-width:220px">
+                    <strong style="color:#0f172a">${node.label}</strong>
+                    ${node.domain ? `<br/><span style="color:#64748b">${node.domain}</span>` : ""}
+                    ${node.summary ? `<br/><span style="color:#94a3b8;font-size:11px">${node.summary.slice(0, 80)}…</span>` : ""}
                   </div>`
                 }
                 nodeColor={nodeColor}
@@ -627,7 +627,7 @@ export default function BrainGraphPage() {
                 linkDirectionalParticleWidth={2}
                 onNodeClick={handleNodeClick}
                 onNodeHover={handleNodeHover}
-                backgroundColor="#0d0d0f"
+                backgroundColor="#ffffff"
                 warmupTicks={80}
                 cooldownTicks={80}
                 d3AlphaDecay={0.02}

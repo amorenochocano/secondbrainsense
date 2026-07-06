@@ -1607,18 +1607,14 @@ async def _run_ingest_pipeline(
             "[ingest_url] job=%s extraction OK: %d bloques", job_id, len(blocks)
         )
 
-        # ── FASE 2: Limpieza — concatenación del texto ────────────────────────
-        await _emit("cleaning", "running")
+        # ── FASE 2: Síntesis del pasaporte con LLM ───────────────────────────
+        await _emit("synthesis", "running")
         full_text = "\n\n".join(
             b.get("content", "") for b in blocks if b.get("content")
         ).strip()
         if not full_text:
-            await _emit("cleaning", "error", detail="El contenido extraído está vacío")
+            await _emit("synthesis", "error", detail="El contenido extraído está vacío")
             return
-        await _emit("cleaning", "ok", chunks=len(blocks))
-
-        # ── FASE 3: Síntesis del pasaporte con LLM ────────────────────────────
-        await _emit("embedding", "running")
         synth_model    = model    or os.getenv("SYNTHESIS_MODEL",    "qwen2.5-coder:3b")
         synth_provider = provider or os.getenv("BRAIN_LLM_PROVIDER", "ollama")
 
@@ -1636,15 +1632,15 @@ async def _run_ingest_pipeline(
 
         new_md = await asyncio.to_thread(_synthesize)
         if not new_md.strip():
-            await _emit("embedding", "error", detail="El sintetizador devolvió contenido vacío")
+            await _emit("synthesis", "error", detail="El sintetizador devolvió contenido vacío")
             return
 
         await asyncio.to_thread(BrainWriter().write, url, new_md)
-        await _emit("embedding", "ok")
+        await _emit("synthesis", "ok")
         _ingest_logger.info("[ingest_url] job=%s synthesis OK: %d chars", job_id, len(new_md))
 
-        # ── FASE 4: Vectorización en Qdrant ───────────────────────────────────
-        await _emit("qdrant", "running")
+        # ── FASE 3: Indexación — chunks + embeddings + Qdrant + PostgreSQL BM25 ─
+        await _emit("indexing", "running")
 
         def _vectorize() -> int:
             results = IngestRouter(QdrantManager.get_instance().client).route(
@@ -1673,7 +1669,7 @@ async def _run_ingest_pipeline(
 
         await asyncio.to_thread(_register_redis)
 
-        await _emit("qdrant", "ok", chunks=total_chunks)
+        await _emit("indexing", "ok", chunks=total_chunks)
         _ingest_logger.info(
             "[ingest_url] job=%s DONE url='%s' chunks=%d space=%d",
             job_id, url, total_chunks, search_space_id,
@@ -1683,7 +1679,7 @@ async def _run_ingest_pipeline(
         _ingest_logger.error(
             "[ingest_url] job=%s ERROR url='%s': %s", job_id, url, exc, exc_info=True
         )
-        await _emit("qdrant", "error", detail=str(exc))
+        await _emit("indexing", "error", detail=str(exc))
     finally:
         # None = señal de fin de stream para el generador SSE
         await queue.put(None)
@@ -1803,8 +1799,8 @@ async def _run_ingest_file_pipeline(
         await asyncio.to_thread(BrainWriter().write, filename, new_md)
         await _emit("synthesis", "ok")
 
-        # ── FASE 3: Chunking + vectorización ─────────────────────────────────
-        await _emit("chunking", "running")
+        # ── FASE 3: Indexación — chunks + embeddings + Qdrant + PostgreSQL BM25 ─
+        await _emit("indexing", "running")
 
         def _vectorize():
             results = IngestRouter(QdrantManager.get_instance().client).route(
@@ -1818,10 +1814,7 @@ async def _run_ingest_file_pipeline(
             return 0
 
         total_chunks = await asyncio.to_thread(_vectorize)
-        await _emit("chunking", "ok", chunks=total_chunks)
-
-        # ── FASE 4: Vectorización Qdrant confirmada ───────────────────────────
-        await _emit("vectorization", "ok", chunks=total_chunks)
+        await _emit("indexing", "ok", chunks=total_chunks)
         _ingest_logger.info(
             "[ingest_file] job=%s DONE filename='%s' chunks=%d space=%d",
             job_id, filename, total_chunks, search_space_id,
@@ -1831,7 +1824,7 @@ async def _run_ingest_file_pipeline(
         _ingest_logger.error(
             "[ingest_file] job=%s ERROR filename='%s': %s", job_id, filename, exc, exc_info=True,
         )
-        await _emit("vectorization", "error", detail=str(exc))
+        await _emit("indexing", "error", detail=str(exc))
     finally:
         import os as _os
         try:
@@ -1960,8 +1953,8 @@ async def _run_ingest_path_pipeline(
         await asyncio.to_thread(BrainWriter().write, local_path, new_md)
         await _emit("synthesis", "ok")
 
-        # ── FASE 3: Chunking + vectorización ─────────────────────────────────
-        await _emit("chunking", "running")
+        # ── FASE 3: Indexación — chunks + embeddings + Qdrant + PostgreSQL BM25 ─
+        await _emit("indexing", "running")
 
         def _vectorize():
             results = IngestRouter(QdrantManager.get_instance().client).route(
@@ -1975,10 +1968,7 @@ async def _run_ingest_path_pipeline(
             return 0
 
         total_chunks = await asyncio.to_thread(_vectorize)
-        await _emit("chunking", "ok", chunks=total_chunks)
-
-        # ── FASE 4: Vectorización Qdrant confirmada ───────────────────────────
-        await _emit("vectorization", "ok", chunks=total_chunks)
+        await _emit("indexing", "ok", chunks=total_chunks)
         _ingest_logger.info(
             "[ingest_path] job=%s DONE path='%s' chunks=%d space=%d",
             job_id, local_path, total_chunks, search_space_id,
@@ -1988,7 +1978,7 @@ async def _run_ingest_path_pipeline(
         _ingest_logger.error(
             "[ingest_path] job=%s ERROR path='%s': %s", job_id, local_path, exc, exc_info=True,
         )
-        await _emit("vectorization", "error", detail=str(exc))
+        await _emit("indexing", "error", detail=str(exc))
     finally:
         await queue.put(None)
 
@@ -2749,8 +2739,8 @@ async def _run_ingest_connector_pipeline(
             "[ingest_connector] job=%s synthesis OK: %d chars", job_id, len(new_md)
         )
 
-        # ── FASE 3: Chunking + vectorización en Qdrant ────────────────────────
-        await _emit("chunking", "running")
+        # ── FASE 3: Indexación — chunks + embeddings + Qdrant + PostgreSQL BM25 ─
+        await _emit("indexing", "running")
 
         def _vectorize() -> int:
             results = IngestRouter(QdrantManager.get_instance().client).route(
@@ -2764,9 +2754,7 @@ async def _run_ingest_connector_pipeline(
             return 0
 
         total_chunks = await asyncio.to_thread(_vectorize)
-        await _emit("chunking", "ok", chunks=total_chunks)
 
-        # ── FASE 4: Confirmación + Redis ─────────────────────────────────────
         import redis as _redis_lib
         def _register_redis() -> None:
             try:
@@ -2780,7 +2768,7 @@ async def _run_ingest_connector_pipeline(
                 )
 
         await asyncio.to_thread(_register_redis)
-        await _emit("vectorization", "ok", chunks=total_chunks)
+        await _emit("indexing", "ok", chunks=total_chunks)
 
         _connector_ingest_logger.info(
             "[ingest_connector] job=%s DONE connector=%s item='%s' chunks=%d space=%d",
@@ -2796,7 +2784,7 @@ async def _run_ingest_connector_pipeline(
         _connector_ingest_logger.error(
             "[ingest_connector] job=%s ERROR: %s", job_id, exc, exc_info=True
         )
-        await _emit("vectorization", "error", detail=str(exc))
+        await _emit("indexing", "error", detail=str(exc))
     finally:
         await queue.put(None)
 

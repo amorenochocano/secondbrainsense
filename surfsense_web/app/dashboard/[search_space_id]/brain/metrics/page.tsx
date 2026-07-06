@@ -69,14 +69,14 @@ interface CollectionCardProps {
 
 function CollectionCard({ name, icon, vectors, sources, dimension, accent, accentText, ratio }: CollectionCardProps) {
   return (
-    <div className={cn("rounded-xl border bg-slate-800/40 p-5 space-y-3", accent)}>
+    <div className={cn("rounded-xl border bg-card p-5 space-y-3", accent)}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className={accentText}>{icon}</span>
-          <span className="text-sm font-semibold text-slate-200 font-mono">{name}</span>
+          <span className="text-sm font-semibold text-foreground font-mono">{name}</span>
         </div>
         {ratio !== undefined && (
-          <span className="text-xs text-slate-400">
+          <span className="text-xs text-muted-foreground">
             {Math.round(ratio * 100)}% del total
           </span>
         )}
@@ -84,21 +84,21 @@ function CollectionCard({ name, icon, vectors, sources, dimension, accent, accen
 
       <div className="grid grid-cols-3 gap-3">
         <div>
-          <p className="text-xs text-slate-500">Vectores</p>
+          <p className="text-xs text-muted-foreground">Vectores</p>
           <p className={cn("text-xl font-bold tabular-nums", accentText)}>{formatNumber(vectors)}</p>
         </div>
         <div>
-          <p className="text-xs text-slate-500">Fuentes</p>
-          <p className="text-xl font-bold text-slate-200 tabular-nums">{formatNumber(sources)}</p>
+          <p className="text-xs text-muted-foreground">Fuentes</p>
+          <p className="text-xl font-bold text-foreground tabular-nums">{formatNumber(sources)}</p>
         </div>
         <div>
-          <p className="text-xs text-slate-500">Dimensión</p>
-          <p className="text-xl font-bold text-slate-400 tabular-nums">{dimension}</p>
+          <p className="text-xs text-muted-foreground">Dimensión</p>
+          <p className="text-xl font-bold text-muted-foreground tabular-nums">{dimension}</p>
         </div>
       </div>
 
       {ratio !== undefined && (
-        <div className="h-1.5 w-full rounded-full bg-slate-700/60 overflow-hidden">
+        <div className="h-1.5 w-full rounded-full bg-border/50 overflow-hidden">
           <div
             className={cn("h-full rounded-full transition-all duration-700", accentText.replace("text-", "bg-"))}
             style={{ width: `${Math.round(ratio * 100)}%` }}
@@ -128,16 +128,16 @@ function LevelBar({ levelKey, count, maxCount }: LevelBarProps) {
         {isValidLevel ? (
           <LevelBadge level={numericLevel as keyof typeof BRAIN_LEVEL_CONFIG} />
         ) : (
-          <span className="text-xs text-slate-400">{levelKey}</span>
+          <span className="text-xs text-muted-foreground">{levelKey}</span>
         )}
       </div>
-      <div className="flex-1 h-2 rounded-full bg-slate-700/60 overflow-hidden">
+      <div className="flex-1 h-2 rounded-full bg-border/50 overflow-hidden">
         <div
-          className="h-full rounded-full bg-violet-500/70 transition-all duration-700"
+          className="h-full rounded-full bg-primary/70 transition-all duration-700"
           style={{ width: `${pct}%` }}
         />
       </div>
-      <span className="w-10 text-right text-xs text-slate-400 tabular-nums shrink-0">{count}</span>
+      <span className="w-10 text-right text-xs text-muted-foreground tabular-nums shrink-0">{count}</span>
     </div>
   );
 }
@@ -209,24 +209,24 @@ export default function BrainMetricsPage() {
   const isLoading = statsLoading || levelLoading;
 
   return (
-    <div className="dark flex flex-col gap-6 p-6 max-w-5xl mx-auto w-full">
+    <div className="flex flex-col gap-6 p-6 max-w-5xl mx-auto w-full">
       {/* Breadcrumb */}
       <BrainBreadcrumb spaceId={spaceId} current="Métricas" />
 
       {/* Cabecera */}
       <div>
-        <h1 className="text-xl font-bold text-slate-100 flex items-center gap-2">
-          <BarChart3 className="h-5 w-5 text-violet-400" />
+        <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
+          <BarChart3 className="h-5 w-5 text-primary" />
           Métricas Brain
         </h1>
-        <p className="text-sm text-slate-400 mt-1">
+        <p className="text-sm text-muted-foreground mt-1">
           Estado operacional del pipeline de conocimiento · Qdrant + PostgreSQL
         </p>
       </div>
 
       {isLoading && (
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-6 w-6 animate-spin text-violet-400" />
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       )}
 
@@ -234,7 +234,7 @@ export default function BrainMetricsPage() {
         <>
           {/* ── Sección 1: Colecciones Qdrant ───────────────────────────── */}
           <section>
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3 flex items-center gap-2">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
               <Database className="h-3.5 w-3.5" />
               Colecciones Qdrant
             </h2>
@@ -273,15 +273,15 @@ export default function BrainMetricsPage() {
 
             {/* Totales */}
             <div className="mt-3 flex items-center gap-6 px-1">
-              <span className="text-xs text-slate-500">
-                Total vectores: <span className="font-semibold text-slate-300">{formatNumber(totalVectors)}</span>
+              <span className="text-xs text-muted-foreground">
+                Total vectores: <span className="font-semibold text-foreground">{formatNumber(totalVectors)}</span>
               </span>
-              <span className="text-xs text-slate-500">
-                Documentos indexados: <span className="font-semibold text-slate-300">{passports?.length ?? 0}</span>
+              <span className="text-xs text-muted-foreground">
+                Documentos indexados: <span className="font-semibold text-foreground">{passports?.length ?? 0}</span>
               </span>
               {stats?.last_ingest_at && (
-                <span className="text-xs text-slate-500">
-                  Última ingesta: <span className="font-semibold text-slate-300">
+                <span className="text-xs text-muted-foreground">
+                  Última ingesta: <span className="font-semibold text-foreground">
                     {new Date(stats.last_ingest_at).toLocaleDateString("es-ES")}
                   </span>
                 </span>
@@ -291,19 +291,19 @@ export default function BrainMetricsPage() {
 
           {/* ── Sección 2: Distribución de niveles ──────────────────────── */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-4 flex items-center gap-2">
+            <div className="rounded-xl border border-border bg-card p-5">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4 flex items-center gap-2">
                 <TrendingUp className="h-3.5 w-3.5" />
                 Uso de niveles (últimas {levelUsage?.period_hours ?? 24}h)
                 {totalUsage > 0 && (
-                  <span className="ml-auto text-xs text-slate-400 font-normal normal-case">
+                  <span className="ml-auto text-xs text-muted-foreground font-normal normal-case">
                     {totalUsage} consultas
                   </span>
                 )}
               </h2>
 
               {usageEntries.length === 0 ? (
-                <p className="text-sm text-slate-500 text-center py-6">Sin datos de uso todavía</p>
+                <p className="text-sm text-muted-foreground text-center py-6">Sin datos de uso todavía</p>
               ) : (
                 <div className="space-y-3">
                   {usageEntries.map(([levelKey, count]) => (
@@ -314,14 +314,14 @@ export default function BrainMetricsPage() {
             </div>
 
             {/* ── Sección 3: Categorías A/B/C ─────────────────────────── */}
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-4 flex items-center gap-2">
+            <div className="rounded-xl border border-border bg-card p-5">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4 flex items-center gap-2">
                 <Layers className="h-3.5 w-3.5" />
                 Distribución por categoría del pipeline
               </h2>
 
               {passports?.length === 0 ? (
-                <p className="text-sm text-slate-500 text-center py-6">Sin documentos todavía</p>
+                <p className="text-sm text-muted-foreground text-center py-6">Sin documentos todavía</p>
               ) : (
                 <div className="space-y-3">
                   {(["A", "B", "C"] as IngestCategory[]).map((cat) => {
@@ -341,13 +341,13 @@ export default function BrainMetricsPage() {
                               {(() => { const Icon = CATEGORY_ICON_METRICS[cat]; return <Icon className="h-3 w-3 shrink-0" aria-hidden />; })()}
                               {cfg.label}
                             </span>
-                            <span className="text-xs text-slate-400 hidden sm:inline">{cfg.desc}</span>
+                            <span className="text-xs text-muted-foreground hidden sm:inline">{cfg.desc}</span>
                           </div>
-                          <span className="text-xs text-slate-400 tabular-nums">{count} docs</span>
+                          <span className="text-xs text-muted-foreground tabular-nums">{count} docs</span>
                         </div>
-                        <div className="h-1.5 w-full rounded-full bg-slate-700/60 overflow-hidden">
+                        <div className="h-1.5 w-full rounded-full bg-border/50 overflow-hidden">
                           <div
-                            className="h-full rounded-full bg-violet-500/50 transition-all duration-700"
+                            className="h-full rounded-full bg-primary/50 transition-all duration-700"
                             style={{ width: `${pct}%` }}
                           />
                         </div>
@@ -361,32 +361,31 @@ export default function BrainMetricsPage() {
 
           {/* ── Sección 4: Top fuentes ──────────────────────────────────── */}
           {topSources.length > 0 && (
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-4 flex items-center gap-2">
+            <div className="rounded-xl border border-border bg-card p-5">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4 flex items-center gap-2">
                 <FileText className="h-3.5 w-3.5" />
                 Top fuentes por importancia
               </h2>
               <div className="space-y-2">
                 {topSources.map((p, idx) => (
                   <div key={p.source} className="flex items-center gap-3 py-1.5">
-                    <span className="w-5 text-xs text-slate-600 tabular-nums text-right shrink-0">
+                    <span className="w-5 text-xs text-muted-foreground/50 tabular-nums text-right shrink-0">
                       {idx + 1}
                     </span>
                     <DomainBadge domain={p.domain} size="sm" />
                     <span
-                      className="flex-1 text-sm text-slate-300 truncate"
+                      className="flex-1 text-sm text-foreground truncate"
                       title={p.source}
                     >
                       {p.source.split("/").pop() ?? p.source}
                     </span>
-                    {/* Importance dots */}
                     <span className="flex gap-0.5 shrink-0">
                       {Array.from({ length: 5 }, (_, i) => (
                         <span
                           key={i}
                           className={cn(
                             "text-[10px]",
-                            i < (p.importance ?? 0) ? "text-violet-400" : "text-slate-700",
+                            i < (p.importance ?? 0) ? "text-primary" : "text-border",
                           )}
                         >
                           ●

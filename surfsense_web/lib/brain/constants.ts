@@ -314,22 +314,22 @@ export const BRAIN_IMPORTANCE_MAX = 5 as const;
 
 /** Colores hexadecimales de dominio para renderizado en canvas del grafo */
 export const BRAIN_DOMAIN_GRAPH_COLORS: Record<string, string> = {
-  engineering: "#a78bfa", // violet-400
-  data:        "#fb923c", // orange-400
-  business:    "#38bdf8", // sky-400
-  functional:  "#4ade80", // green-400
-  legal:       "#f87171", // red-400
-  other:       "#6b7280", // gray-500
+  engineering: "#7c3aed", // violet-700
+  data:        "#ea580c", // orange-600
+  business:    "#0284c7", // sky-600
+  functional:  "#16a34a", // green-600
+  legal:       "#dc2626", // red-600
+  other:       "#64748b", // slate-500
 };
 
 /** Color por defecto de nodo cuando el dominio no está mapeado */
-export const BRAIN_GRAPH_NODE_DEFAULT_COLOR = "#6b7280" as const;
+export const BRAIN_GRAPH_NODE_DEFAULT_COLOR = "#64748b" as const;
 
-/** Colores de aristas por tipo */
+/** Colores de aristas por tipo — ajustados para fondo claro */
 export const BRAIN_GRAPH_EDGE_COLORS = {
-  related:    "rgba(167, 139, 250, 0.8)",  // violeta — referencia explícita
-  serie:      "rgba(96, 165, 250, 0.6)",   // azul — misma serie documental
-  tag_overlap: "rgba(75, 85, 99, 0.4)",    // gris — tags compartidos (reducción de ruido)
+  related:    "rgba(124, 58, 237, 0.5)",   // violeta — referencia explícita
+  serie:      "rgba(2, 132, 199, 0.4)",    // azul — misma serie documental
+  tag_overlap: "rgba(148, 163, 184, 0.3)", // gris claro — tags compartidos
 } as const;
 
 /** Grosor de aristas por tipo */
@@ -353,13 +353,12 @@ export const BRAIN_GRAPH_TOOLTIP_SUMMARY_LENGTH = 160 as const;
 
 /**
  * Fases del pipeline Brain en orden de ejecución.
- * Fuente: brain_ingest.py — 4 fases secuenciales via SSE.
+ * Claves SSE emitidas por brain_routes.py (todos los endpoints): extraction | synthesis | indexing
  */
 export const BRAIN_INGEST_PHASES = [
-  { key: "extraction",    icon: "📥", label: "Extracción",     detail: "Parseando formato del documento" },
-  { key: "synthesis",     icon: "🧠", label: "Síntesis L1",    detail: "Generando pasaporte semántico → brain" },
-  { key: "chunking",      icon: "📦", label: "Chunking L2",    detail: "Dividiendo en chunks → knowledge/code" },
-  { key: "vectorization", icon: "🔢", label: "Vectorización",  detail: "Almacenando embeddings en Qdrant" },
+  { key: "extraction", icon: "📥", label: "Extracción",        detail: "Detectando formato y extrayendo bloques de contenido" },
+  { key: "synthesis",  icon: "🧠", label: "Síntesis semántica", detail: "Generando pasaporte semántico con LLM → colección brain" },
+  { key: "indexing",   icon: "🗄️", label: "Indexación",         detail: "Chunks + embeddings → Qdrant (brain / knowledge / code) + PostgreSQL BM25" },
 ] as const;
 
 export type IngestPhaseKey = (typeof BRAIN_INGEST_PHASES)[number]["key"];

@@ -125,14 +125,18 @@ function PassportPreview({ content }: { content: string }) {
   return (
     <div
       className={cn(
-        "h-full overflow-y-auto px-6 py-5",
-        "prose prose-sm prose-invert max-w-none",
+        "h-full overflow-y-auto px-8 py-6",
+        "prose prose-sm max-w-none",
         "[&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-border [&_pre]:bg-muted/40 [&_pre]:p-4",
-        "[&_code:not(pre_code)]:rounded [&_code:not(pre_code)]:bg-violet-500/10 [&_code:not(pre_code)]:px-1.5 [&_code:not(pre_code)]:py-0.5 [&_code:not(pre_code)]:text-[0.8em] [&_code:not(pre_code)]:text-violet-300",
-        "[&_a]:text-violet-400 [&_a]:underline-offset-4 [&_a:hover]:text-violet-300",
-        "[&_h1]:text-base [&_h2]:text-sm [&_h3]:text-xs",
-        "[&_blockquote]:border-violet-500/30 [&_blockquote]:text-muted-foreground",
-        "[&_table]:w-full [&_thead]:bg-muted/30 [&_tbody_tr:hover]:bg-muted/20",
+        "[&_code:not(pre_code)]:rounded [&_code:not(pre_code)]:bg-primary/8 [&_code:not(pre_code)]:px-1.5 [&_code:not(pre_code)]:py-0.5 [&_code:not(pre_code)]:text-[0.8em] [&_code:not(pre_code)]:text-primary",
+        "[&_a]:text-primary [&_a]:underline-offset-4 [&_a:hover]:text-primary/80",
+        "[&_h1]:text-xl [&_h1]:font-bold [&_h1]:text-foreground",
+        "[&_h2]:text-base [&_h2]:font-semibold [&_h2]:text-foreground [&_h2]:border-b [&_h2]:border-border/50 [&_h2]:pb-1",
+        "[&_h3]:text-sm [&_h3]:font-medium [&_h3]:text-foreground",
+        "[&_blockquote]:border-primary/30 [&_blockquote]:text-muted-foreground [&_blockquote]:bg-muted/30 [&_blockquote]:rounded-r-lg [&_blockquote]:py-0.5",
+        "[&_table]:w-full [&_thead]:bg-muted/50 [&_tbody_tr:hover]:bg-muted/20 [&_th]:text-foreground [&_td]:text-foreground",
+        "[&_hr]:border-border/40",
+        "[&_li]:text-foreground [&_p]:text-foreground",
       )}
     >
       {content ? (
@@ -535,25 +539,26 @@ export default function BrainWikiDetailPage() {
           </div>
         </header>
 
-        {/* ── Paneles Editor / Preview ────────────────────────────────── */}
+        {/* ── Contenido ───────────────────────────────────────────────── */}
         {isLoading ? (
-          <div className="flex-1 p-6">
-            <div className="flex h-full gap-4">
-              <Skeleton className="flex-1 rounded-xl" />
-              <Skeleton className="flex-1 rounded-xl" />
-            </div>
+          <div className="flex-1 p-8 max-w-3xl mx-auto w-full space-y-4">
+            <Skeleton className="h-8 w-2/3 rounded-lg" />
+            <Skeleton className="h-4 w-full rounded" />
+            <Skeleton className="h-4 w-5/6 rounded" />
+            <Skeleton className="h-4 w-4/5 rounded" />
+            <Skeleton className="h-32 w-full rounded-lg mt-4" />
           </div>
-        ) : (
+        ) : isEditing ? (
+          /* ── Modo edición: split editor + preview ── */
           <div className="flex flex-1 overflow-hidden">
-            {/* Panel izquierdo — Monaco editor */}
             <div className="flex w-1/2 flex-col border-r border-border/40">
-              {/* Etiqueta del panel */}
-              <div className="flex shrink-0 items-center gap-1.5 border-b border-border/30 px-3 py-1.5">
+              <div className="flex shrink-0 items-center gap-1.5 border-b border-border/30 px-3 py-1.5 bg-muted/30">
                 <Edit3 className="size-3 text-muted-foreground" />
-                <span className="text-[11px] text-muted-foreground">Markdown</span>
-                {!isEditing && (
-                  <span className="ml-auto text-[10px] text-muted-foreground/50">
-                    Solo lectura · haz clic en Editar para modificar
+                <span className="text-[11px] text-muted-foreground font-medium">Markdown</span>
+                {isDirty && (
+                  <span className="ml-auto flex items-center gap-1 text-[10px] text-amber-500">
+                    <span className="size-1.5 rounded-full bg-amber-400" />
+                    sin guardar
                   </span>
                 )}
               </div>
@@ -562,9 +567,8 @@ export default function BrainWikiDetailPage() {
                   defaultLanguage="markdown"
                   theme="vs-dark"
                   value={content}
-                  onChange={(value) => isEditing && setContent(value ?? "")}
+                  onChange={(value) => setContent(value ?? "")}
                   options={{
-                    readOnly: !isEditing,
                     minimap: { enabled: false },
                     wordWrap: "on",
                     lineNumbers: "on",
@@ -572,27 +576,23 @@ export default function BrainWikiDetailPage() {
                     fontSize: 13,
                     fontFamily: "'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace",
                     padding: { top: 12, bottom: 12 },
-                    renderLineHighlight: isEditing ? "line" : "none",
-                    domReadOnly: !isEditing,
                     scrollbar: { verticalScrollbarSize: 6 },
                   }}
                 />
               </div>
             </div>
-
-            {/* Panel derecho — Preview en vivo */}
             <div className="flex w-1/2 flex-col">
-              <div className="flex shrink-0 items-center gap-1.5 border-b border-border/30 px-3 py-1.5">
+              <div className="flex shrink-0 items-center gap-1.5 border-b border-border/30 px-3 py-1.5 bg-muted/10">
                 <Eye className="size-3 text-muted-foreground" />
-                <span className="text-[11px] text-muted-foreground">Preview</span>
-                {isDirty && isEditing && (
-                  <span className="ml-auto text-[10px] text-amber-400/70">
-                    · no guardado
-                  </span>
-                )}
+                <span className="text-[11px] text-muted-foreground font-medium">Preview en vivo</span>
               </div>
               <PassportPreview content={content} />
             </div>
+          </div>
+        ) : (
+          /* ── Modo vista: preview a pantalla completa ── */
+          <div className="flex-1 overflow-hidden">
+            <PassportPreview content={content} />
           </div>
         )}
 

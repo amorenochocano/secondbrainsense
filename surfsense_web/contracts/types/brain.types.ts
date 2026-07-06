@@ -96,8 +96,8 @@ export type BrainStatsResponse = z.infer<typeof brainStatsResponse>;
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const passportMetadata = z.object({
-  source:        z.string(),
-  title:         z.string(),
+  source:        z.string().optional().nullable(),
+  title:         z.string().optional().nullable(),
   doc_type:      z.string().optional().nullable(),
   domain:        brainDomainSchema.optional().nullable().catch(null),
   importance:    z.number().int().min(1).max(5).optional().nullable(),
