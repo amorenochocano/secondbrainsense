@@ -106,7 +106,7 @@ export const passportMetadata = z.object({
   scopes:        z.array(brainScopeSchema).default([]),
   connector_type: z.string().optional().nullable(),
   has_pii:       z.boolean().default(false),
-  updated_at:    z.string().nullable(),
+  updated_at:    z.string().optional().nullable(),
   search_space_id: z.number().int().positive().optional().nullable(),
 });
 export type PassportMetadata = z.infer<typeof passportMetadata>;

@@ -251,6 +251,14 @@ export function Sidebar({
 				<div className="flex-1 w-full" />
 			) : (
 				<div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin scrollbar-thumb-muted-foreground/20 scrollbar-track-transparent">
+					{footerNavItems.length > 0 && (
+						<NavSection
+							items={footerNavItems}
+							onItemClick={onNavItemClick}
+							isCollapsed={isCollapsed}
+						/>
+					)}
+
 					<SidebarSection
 						title={t("recents")}
 						defaultOpen={true}
@@ -294,14 +302,6 @@ export function Sidebar({
 							<p className="px-2 py-1 text-sm text-muted-foreground/60">{t("no_chats")}</p>
 						)}
 					</SidebarSection>
-
-					{footerNavItems.length > 0 && (
-						<NavSection
-							items={footerNavItems}
-							onItemClick={onNavItemClick}
-							isCollapsed={isCollapsed}
-						/>
-					)}
 				</div>
 			)}
 

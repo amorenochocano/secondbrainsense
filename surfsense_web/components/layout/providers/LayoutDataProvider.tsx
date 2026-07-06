@@ -337,6 +337,7 @@ export function LayoutDataProvider({ searchSpaceId, children }: LayoutDataProvid
 							}
 						: null,
 					// ── Brain ────────────────────────────────────────────
+					{ title: "Home",     icon: LayoutDashboard, url: BRAIN_ROUTES.HOME(searchSpaceId),       isActive: pathname?.endsWith("/brain/home") },
 					{ title: "Wiki",     icon: BookOpen,        url: BRAIN_ROUTES.WIKI(searchSpaceId),       isActive: pathname?.includes("/brain/wiki") },
 					{ title: "Grafo",    icon: Network,         url: BRAIN_ROUTES.GRAPH(searchSpaceId),      isActive: pathname?.includes("/brain/graph") },
 					{ title: "Ingestar", icon: Upload,          url: BRAIN_ROUTES.INGEST(searchSpaceId),     isActive: pathname?.includes("/brain/ingest") },

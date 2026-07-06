@@ -59,7 +59,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DomainBadge } from "@/components/brain";
 import { brainApiService } from "@/lib/apis/brain-api.service";
@@ -68,10 +67,9 @@ import {
   BRAIN_DEFAULT_MODEL,
   BRAIN_MODEL_RECOMMENDATION,
   BRAIN_ROUTES,
-  BRAIN_SCOPE_COLORS,
 } from "@/lib/brain/constants";
 import { cacheKeys } from "@/lib/query-client/cache-keys";
-import type { BrainScope } from "@/contracts/types/brain.types";
+import type { BrainDomain } from "@/contracts/types/brain.types";
 import { cn } from "@/lib/utils";
 
 const log = brainLogger("BrainWikiDetail");
@@ -105,6 +103,228 @@ function formatDateTime(dateStr: string): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(dateStr));
+}
+
+interface ParsedFrontmatter {
+  id?: string;
+  title?: string;
+  type?: string;
+  domain?: string;
+  subdomain?: string;
+  importance?: string;
+  confidence?: number;
+  refresh_policy?: string;
+  tags?: string[];
+  entities?: string[];
+  related?: string[];
+  drill_down_triggers?: string[];
+  embedding_scope?: string[];
+  source?: { type?: string; origin?: string; format?: string; location?: string };
+  created_at?: string;
+  updated_at?: string;
+}
+
+/** Extrae frontmatter YAML y body de un .md con bloque --- */
+function parseFrontmatter(raw: string): { meta: ParsedFrontmatter; body: string } {
+  const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  if (!match) return { meta: {}, body: raw };
+
+  const yamlText = match[1];
+  const body = match[2] ?? "";
+  const meta: ParsedFrontmatter = {};
+
+  const lines = yamlText.split(/\r?\n/);
+  let i = 0;
+
+  const parseJsonOrYamlArray = (val: string, rest: string[]): string[] => {
+    // Inline JSON array: ["a","b"] or ['a','b']
+    const jsonMatch = val.trim().match(/^\[[\s\S]*\]$/);
+    if (jsonMatch) {
+      try { return JSON.parse(val.trim().replace(/'/g, '"')); } catch { /* fall through */ }
+    }
+    // YAML block list: subsequent lines starting with "  - "
+    const items: string[] = [];
+    for (const line of rest) {
+      const m = line.match(/^\s+-\s+"?(.+?)"?\s*$/);
+      if (!m) break;
+      items.push(m[1].replace(/^"|"$/g, ""));
+    }
+    return items;
+  };
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const kvMatch = line.match(/^(\w[\w_]*):\s*(.*)/);
+    if (!kvMatch) { i++; continue; }
+
+    const key = kvMatch[1];
+    const val = kvMatch[2].trim();
+
+    const remaining = lines.slice(i + 1);
+
+    if (key === "source") {
+      // Nested object block
+      const src: ParsedFrontmatter["source"] = {};
+      let j = i + 1;
+      while (j < lines.length) {
+        const sub = lines[j].match(/^\s{2}(\w+):\s*(.*)/);
+        if (!sub) break;
+        (src as Record<string, string>)[sub[1]] = sub[2].replace(/^"|"$/g, "");
+        j++;
+      }
+      meta.source = src;
+      i = j;
+      continue;
+    }
+
+    if (key === "tags" || key === "entities" || key === "related" ||
+        key === "drill_down_triggers" || key === "embedding_scope") {
+      const arr = parseJsonOrYamlArray(val, remaining);
+      // Skip consumed block lines
+      if (!val.trim().startsWith("[") && arr.length > 0) {
+        i += arr.length + 1;
+      } else {
+        i++;
+      }
+      (meta as Record<string, unknown>)[key] = arr;
+      continue;
+    }
+
+    // Scalar
+    const scalar = val.replace(/^"|"$/g, "");
+    if (key === "confidence") { meta.confidence = parseFloat(scalar); }
+    else { (meta as Record<string, unknown>)[key] = scalar; }
+    i++;
+  }
+
+  return { meta, body };
+}
+
+const IMPORTANCE_COLORS: Record<string, string> = {
+  critical: "bg-red-100 text-red-700 border-red-200",
+  high:     "bg-orange-100 text-orange-700 border-orange-200",
+  medium:   "bg-amber-100 text-amber-700 border-amber-200",
+  low:      "bg-slate-100 text-slate-500 border-slate-200",
+};
+
+/** Panel de metadata del pasaporte */
+function PassportMetaPanel({ meta }: { meta: ParsedFrontmatter }) {
+  const [showEntities, setShowEntities] = useState(false);
+
+  if (!meta.title && !meta.domain && !meta.tags?.length) return null;
+
+  return (
+    <div className="mx-8 mt-6 mb-2 rounded-xl border border-border/60 bg-muted/20 overflow-hidden">
+      {/* Cabecera: title + badges */}
+      <div className="px-5 py-4 flex flex-wrap items-start gap-3 border-b border-border/40">
+        <div className="flex-1 min-w-0">
+          {meta.title && (
+            <h1 className="text-base font-semibold text-foreground leading-snug">{meta.title}</h1>
+          )}
+          {meta.source?.origin && meta.source.origin !== meta.title && (
+            <p className="mt-0.5 text-xs text-muted-foreground font-mono truncate">
+              {meta.source.origin}
+            </p>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+          {meta.type && (
+            <span className="inline-flex items-center rounded-full border border-border/60 bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              {meta.type}
+            </span>
+          )}
+          {meta.domain && (
+            <DomainBadge domain={meta.domain as BrainDomain} />
+          )}
+          {meta.importance && IMPORTANCE_COLORS[meta.importance] && (
+            <span className={cn(
+              "inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium",
+              IMPORTANCE_COLORS[meta.importance],
+            )}>
+              {meta.importance}
+            </span>
+          )}
+          {meta.confidence != null && (
+            <span className="text-[11px] text-muted-foreground">
+              {Math.round(meta.confidence * 100)}% conf.
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Tags */}
+      {meta.tags && meta.tags.length > 0 && (
+        <div className="px-5 py-3 flex flex-wrap gap-1.5 border-b border-border/30">
+          {meta.tags.map((tag) => (
+            <span
+              key={tag}
+              className="inline-flex items-center rounded-full bg-primary/8 px-2 py-0.5 text-[11px] font-medium text-primary border border-primary/15"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Fila de metadatos: scope + fechas + source */}
+      <div className="px-5 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground border-b border-border/30">
+        {meta.embedding_scope && meta.embedding_scope.length > 0 && (
+          <span className="flex items-center gap-1">
+            <span className="opacity-60">scope:</span>
+            {meta.embedding_scope.map((s) => (
+              <span key={s} className="font-medium text-foreground">{s}</span>
+            ))}
+          </span>
+        )}
+        {meta.source?.format && (
+          <span><span className="opacity-60">formato:</span> <span className="font-medium text-foreground">{meta.source.format}</span></span>
+        )}
+        {meta.created_at && (
+          <span><span className="opacity-60">creado:</span> {formatDateTime(meta.created_at)}</span>
+        )}
+        {meta.updated_at && meta.updated_at !== meta.created_at && (
+          <span><span className="opacity-60">actualizado:</span> {formatDateTime(meta.updated_at)}</span>
+        )}
+      </div>
+
+      {/* Entidades collapsible + drill_down_triggers */}
+      {(meta.entities?.length || meta.drill_down_triggers?.length) ? (
+        <div className="px-5 py-2.5">
+          {meta.entities && meta.entities.length > 0 && (
+            <div className="mb-2">
+              <button
+                type="button"
+                onClick={() => setShowEntities((v) => !v)}
+                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors mb-1.5"
+              >
+                <ChevronDown className={cn("size-3 transition-transform", showEntities && "rotate-180")} />
+                <span className="font-medium">{meta.entities.length} entidades</span>
+              </button>
+              {showEntities && (
+                <div className="flex flex-wrap gap-1">
+                  {meta.entities.map((e) => (
+                    <span key={e} className="inline-flex items-center rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground border border-border/40">
+                      {e}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {meta.drill_down_triggers && meta.drill_down_triggers.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-[11px] text-muted-foreground opacity-60 mr-0.5">triggers:</span>
+              {meta.drill_down_triggers.map((t) => (
+                <span key={t} className="inline-flex items-center rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground border border-border/30">
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 /** Modelo recomendado según extensión del source */
@@ -362,6 +582,13 @@ export default function BrainWikiDetailPage() {
     toast.info("Versión restaurada en el editor — guarda para confirmar");
   }, []);
 
+  // ── Frontmatter parseado (para MetaPanel + body-only preview) ─────────────
+
+  const { meta: parsedMeta, body: contentBody } = useMemo(
+    () => parseFrontmatter(content),
+    [content],
+  );
+
   // ── Modelos disponibles para selector re-síntesis ──────────────────────────
 
   const availableModels = useMemo(() => {
@@ -386,11 +613,9 @@ export default function BrainWikiDetailPage() {
     );
   }
 
-  const metadata = passport?.metadata;
-
   return (
     <>
-      <div className="flex h-full flex-col overflow-hidden animate-in fade-in duration-300">
+      <div className="flex h-full flex-col animate-in fade-in duration-300">
         {/* ── Header ─────────────────────────────────────────────────── */}
         <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border/50 px-4 py-2.5">
           <div className="flex items-center gap-2 min-w-0">
@@ -419,32 +644,6 @@ export default function BrainWikiDetailPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Badges de metadata */}
-            {!isLoading && metadata && (
-              <div className="hidden items-center gap-1.5 sm:flex">
-                {metadata.domain && <DomainBadge domain={metadata.domain} />}
-                {metadata.scopes.map((scope) => (
-                  <span
-                    key={scope}
-                    className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
-                    style={{
-                      background: `color-mix(in srgb, ${BRAIN_SCOPE_COLORS[scope as BrainScope]} 15%, transparent)`,
-                      color: BRAIN_SCOPE_COLORS[scope as BrainScope],
-                      outline: `1px solid color-mix(in srgb, ${BRAIN_SCOPE_COLORS[scope as BrainScope]} 30%, transparent)`,
-                    }}
-                  >
-                    {scope}
-                  </span>
-                ))}
-                {metadata.confidence != null && (
-                  <span className="text-xs text-muted-foreground">
-                    {Math.round(metadata.confidence * 100)}% conf.
-                  </span>
-                )}
-              </div>
-            )}
-
-            <Separator orientation="vertical" className="h-5 hidden sm:block" />
 
             {/* Acciones */}
             {isEditing ? (
@@ -581,18 +780,22 @@ export default function BrainWikiDetailPage() {
                 />
               </div>
             </div>
-            <div className="flex w-1/2 flex-col">
+            <div className="flex w-1/2 flex-col overflow-hidden">
               <div className="flex shrink-0 items-center gap-1.5 border-b border-border/30 px-3 py-1.5 bg-muted/10">
                 <Eye className="size-3 text-muted-foreground" />
                 <span className="text-[11px] text-muted-foreground font-medium">Preview en vivo</span>
               </div>
-              <PassportPreview content={content} />
+              <div className="flex-1 overflow-y-auto">
+                <PassportMetaPanel meta={parsedMeta} />
+                <PassportPreview content={contentBody} />
+              </div>
             </div>
           </div>
         ) : (
-          /* ── Modo vista: preview a pantalla completa ── */
-          <div className="flex-1 overflow-hidden">
-            <PassportPreview content={content} />
+          /* ── Modo vista: panel meta + preview a pantalla completa ── */
+          <div className="flex-1 overflow-y-auto">
+            <PassportMetaPanel meta={parsedMeta} />
+            <PassportPreview content={contentBody} />
           </div>
         )}
 
