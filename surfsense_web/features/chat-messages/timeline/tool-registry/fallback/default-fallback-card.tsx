@@ -1,7 +1,8 @@
 "use client";
 
-import { CheckIcon, ChevronDownIcon, XCircleIcon } from "lucide-react";
+import { CheckIcon, ChevronDownIcon, XCircleIcon, BrainCircuit } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useAtomValue } from "jotai";
 import { NestedScroll } from "@/components/assistant-ui/nested-scroll";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -11,8 +12,111 @@ import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { getToolDisplayName } from "@/contracts/enums/toolIcons";
 import { cn } from "@/lib/utils";
+import { activeSearchSpaceIdAtom } from "@/atoms/search-spaces/search-space-query.atoms";
+import { brainApiService } from "@/lib/apis/brain-api.service";
 import type { TimelineToolComponent } from "../types";
 import { ToolCardRevertButton } from "./revert-button";
+
+// ─── helpers para "Ingestar en Brain" ────────────────────────────────────────
+
+const MIN_CONTENT_CHARS = 150;
+
+function extractTextContent(result: unknown): string | null {
+	if (typeof result === "string" && result.trim().length >= MIN_CONTENT_CHARS) {
+		// Descartar resultados que son JSON puro (sin texto narrativo)
+		try {
+			JSON.parse(result);
+			return null; // JSON válido → no ingestable como texto
+		} catch {
+			return result;
+		}
+	}
+	if (result && typeof result === "object") {
+		const r = result as Record<string, unknown>;
+		for (const key of ["content", "text", "body", "message"]) {
+			if (typeof r[key] === "string" && (r[key] as string).length >= MIN_CONTENT_CHARS) {
+				return r[key] as string;
+			}
+		}
+	}
+	return null;
+}
+
+function extractFilename(toolName: string, args: unknown): string {
+	if (args && typeof args === "object") {
+		const a = args as Record<string, unknown>;
+		for (const key of ["filename", "file_name", "name", "title", "subject"]) {
+			if (typeof a[key] === "string" && a[key]) return a[key] as string;
+		}
+	}
+	// Fallback: toolName como base del fichero
+	return `${toolName.replace(/[^a-z0-9_-]/gi, "_")}.txt`;
+}
+
+type IngestState = "idle" | "loading" | "done" | "error";
+
+interface IngestBrainButtonProps {
+	toolName: string;
+	args: unknown;
+	result: unknown;
+	searchSpaceId: string;
+}
+
+function IngestBrainButton({ toolName, args, result, searchSpaceId }: IngestBrainButtonProps) {
+	const [state, setState] = useState<IngestState>("idle");
+	const [chunks, setChunks] = useState<number>(0);
+	const [errMsg, setErrMsg] = useState<string>("");
+
+	const text = useMemo(() => extractTextContent(result), [result]);
+	if (!text) return null;
+
+	async function handleIngest() {
+		setState("loading");
+		try {
+			const resp = await brainApiService.ingestFromText({
+				content:         text!,
+				filename:        extractFilename(toolName, args),
+				search_space_id: Number(searchSpaceId),
+			});
+			setChunks(resp.chunks_created);
+			setState("done");
+		} catch (e) {
+			setErrMsg(e instanceof Error ? e.message : "Error al ingestar");
+			setState("error");
+		}
+	}
+
+	if (state === "done") {
+		return (
+			<span className="flex items-center gap-1.5 text-xs text-violet-400">
+				<BrainCircuit className="h-3.5 w-3.5" />
+				{chunks} chunk{chunks !== 1 ? "s" : ""} añadido{chunks !== 1 ? "s" : ""} al Brain
+			</span>
+		);
+	}
+	if (state === "error") {
+		return (
+			<span className="text-xs text-destructive" title={errMsg}>
+				Error al ingestar
+			</span>
+		);
+	}
+	return (
+		<Button
+			type="button"
+			variant="ghost"
+			size="sm"
+			onClick={handleIngest}
+			disabled={state === "loading"}
+			className="h-7 gap-1.5 px-2 text-xs text-violet-400 hover:text-violet-300 hover:bg-violet-500/10"
+		>
+			{state === "loading"
+				? <Spinner size="sm" />
+				: <BrainCircuit className="h-3.5 w-3.5" />}
+			Ingestar en Brain
+		</Button>
+	);
+}
 
 /**
  * Best-effort error/cancellation reason from a tool result. Used as
@@ -52,11 +156,13 @@ function deriveResultMessage(result: unknown): string | null {
 export const DefaultFallbackCard: TimelineToolComponent = ({
 	toolCallId,
 	toolName,
+	args,
 	argsText,
 	result,
 	status,
 	langchainToolCallId,
 }) => {
+	const searchSpaceId = useAtomValue(activeSearchSpaceIdAtom);
 	const isCancelled = status === "cancelled";
 	const isError = status === "error";
 	const isRunning = status === "running";
@@ -153,6 +259,14 @@ export const DefaultFallbackCard: TimelineToolComponent = ({
 					</CollapsibleTrigger>
 
 					<div className="flex shrink-0 items-center gap-2 pl-2 pr-5">
+						{status === "ok" && searchSpaceId && (
+							<IngestBrainButton
+								toolName={toolName}
+								args={args}
+								result={result}
+								searchSpaceId={searchSpaceId}
+							/>
+						)}
 						<ToolCardRevertButton
 							toolCallId={toolCallId}
 							toolName={toolName}
