@@ -84,7 +84,7 @@ function HealthIndicator({ name, status }: HealthIndicatorProps) {
   const cfg = statusConfig[status];
 
   return (
-    <div className="flex items-center justify-between rounded-lg border border-slate-700/60 bg-slate-800/30 px-4 py-3">
+    <div className="flex items-center justify-between rounded-lg border border-slate-700/60 bg-slate-800 px-4 py-3">
       <div className="flex items-center gap-3">
         <span className={cfg.cls}>{cfg.icon}</span>
         <span className="text-sm text-slate-200">{name}</span>
@@ -210,7 +210,7 @@ export default function BrainAdminPage() {
   const cragProfile = BRAIN_CRAG_PROFILES[cragProvider as keyof typeof BRAIN_CRAG_PROFILES];
 
   return (
-    <div className="flex flex-col gap-6 p-6 max-w-3xl mx-auto w-full">
+    <div className="dark flex flex-col gap-6 p-6 max-w-3xl mx-auto w-full">
       {/* Breadcrumb */}
       <BrainBreadcrumb spaceId={spaceId} current="Admin Brain" />
 
@@ -261,7 +261,7 @@ export default function BrainAdminPage() {
 
           {/* ── TAB: Chunking ──────────────────────────────────────────── */}
           <TabsContent value="chunking" className="mt-6 space-y-5">
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-5 space-y-5">
+            <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5 space-y-5">
               {/* Estrategia */}
               <div className="space-y-2">
                 <Label className="text-sm text-slate-300">Estrategia de chunking</Label>
@@ -299,7 +299,7 @@ export default function BrainAdminPage() {
 
           {/* ── TAB: Retrieval ──────────────────────────────────────────── */}
           <TabsContent value="retrieval" className="mt-6 space-y-5">
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-5 space-y-5">
+            <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5 space-y-5">
               <NumberField
                 label="Score mínimo L1 (pasaportes)"
                 value={draft.ROUTER_L1_HIGH_SCORE ?? 0.72}
@@ -373,7 +373,7 @@ export default function BrainAdminPage() {
           {/* ── TAB: LLM ──────────────────────────────────────────────── */}
           <TabsContent value="llm" className="mt-6 space-y-5">
             {/* Modelo de síntesis */}
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-5 space-y-4">
+            <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5 space-y-4">
               <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Modelo de síntesis
               </p>
@@ -451,7 +451,7 @@ export default function BrainAdminPage() {
             </div>
 
             {/* Bloque CRAG Evaluador */}
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-5 space-y-4">
+            <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
@@ -594,7 +594,7 @@ export default function BrainAdminPage() {
 
           {/* ── TAB: Colecciones ──────────────────────────────────────── */}
           <TabsContent value="collections" className="mt-6 space-y-4">
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-5">
+            <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5">
               <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-4">
                 Estado de colecciones Qdrant
               </p>
@@ -622,7 +622,7 @@ export default function BrainAdminPage() {
 
           {/* ── TAB: Sistema ──────────────────────────────────────────── */}
           <TabsContent value="system" className="mt-6 space-y-4">
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-5 space-y-4">
+            <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                   Health check de servicios
@@ -651,7 +651,7 @@ export default function BrainAdminPage() {
             </div>
 
             {/* Sección F5: Fallback SurfSense */}
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-5 space-y-3">
+            <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5 space-y-3">
               <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Fallback SurfSense (F5 unificada)
               </p>

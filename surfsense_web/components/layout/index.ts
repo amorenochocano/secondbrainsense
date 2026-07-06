@@ -12,7 +12,6 @@ export type {
 export {
 	ChatListItem,
 	CreateSearchSpaceDialog,
-	CreditBalanceDisplay,
 	Header,
 	IconRail,
 	LayoutShell,

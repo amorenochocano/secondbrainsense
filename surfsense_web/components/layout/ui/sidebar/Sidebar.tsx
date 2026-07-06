@@ -1,20 +1,14 @@
 "use client";
 
-import { CreditCard, SquarePen, Zap } from "lucide-react";
-import Link from "next/link";
-import { useParams } from "next/navigation";
+import { SquarePen } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { type ReactNode, useMemo, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useIsAnonymous } from "@/contexts/anonymous-mode";
 import { cn } from "@/lib/utils";
 import { SIDEBAR_MIN_WIDTH } from "../../hooks/useSidebarResize";
-import type { ChatItem, NavItem, PageUsage, SearchSpace, User } from "../../types/layout.types";
+import type { ChatItem, NavItem, SearchSpace, User } from "../../types/layout.types";
 import { ChatListItem } from "./ChatListItem";
-import { CreditBalanceDisplay } from "./CreditBalanceDisplay";
 import { NavSection } from "./NavSection";
 import { SidebarButton } from "./SidebarButton";
 import { SidebarCollapseButton } from "./SidebarCollapseButton";
@@ -83,7 +77,6 @@ interface SidebarProps {
 	onNavigate?: () => void;
 	announcementUnreadCount?: number;
 	onLogout?: () => void;
-	pageUsage?: PageUsage;
 	theme?: string;
 	setTheme?: (theme: "light" | "dark" | "system") => void;
 	className?: string;
@@ -120,7 +113,6 @@ export function Sidebar({
 	onNavigate,
 	announcementUnreadCount = 0,
 	onLogout,
-	pageUsage,
 	theme,
 	setTheme,
 	className,
@@ -254,15 +246,15 @@ export function Sidebar({
 				)}
 			</div>
 
-			{/* Chat sections - fills available space */}
+			{/* Scrollable main content: chats + nav items unified */}
 			{isCollapsed ? (
 				<div className="flex-1 w-full" />
 			) : (
-				<div className="flex-1 flex flex-col gap-1 pt-2 w-full min-h-0 overflow-hidden">
+				<div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin scrollbar-thumb-muted-foreground/20 scrollbar-track-transparent">
 					<SidebarSection
 						title={t("recents")}
 						defaultOpen={true}
-						fillHeight={true}
+						fillHeight={false}
 						alwaysShowAction={!disableTooltips && isChatsPanelOpen}
 						action={
 							onViewAllChats ? (
@@ -280,58 +272,42 @@ export function Sidebar({
 						{isLoadingChats ? (
 							<ChatListSkeletonRows />
 						) : chats.length > 0 ? (
-							<div className="relative flex-1 min-h-0">
-								<div
-									className={`flex flex-col gap-0.5 h-full overflow-y-auto scrollbar-thin scrollbar-thumb-muted-foreground/20 scrollbar-track-transparent ${chats.length > 4 ? "pb-2" : ""}`}
-								>
-									{chats.slice(0, 20).map((chat) => (
-										<ChatListItem
-											key={chat.id}
-											name={chat.name}
-											isActive={chat.id === activeChatId}
-											isShared={chat.visibility === "SEARCH_SPACE"}
-											archived={chat.archived}
-											dropdownOpen={openDropdownChatId === chat.id}
-											onDropdownOpenChange={(open) => setOpenDropdownChatId(open ? chat.id : null)}
-											onClick={() => onChatSelect(chat)}
-											onPrefetch={() => onChatPrefetch?.(chat)}
-											onRename={() => onChatRename?.(chat)}
-											onArchive={() => onChatArchive?.(chat)}
-											onDelete={() => onChatDelete?.(chat)}
-										/>
-									))}
-								</div>
-								{/* Gradient fade indicator when more than 4 items */}
-								{chats.length > 4 && (
-									<div className="pointer-events-none absolute bottom-0 left-0 right-0 h-5 bg-gradient-to-t from-sidebar/80 to-transparent" />
-								)}
+							<div className="flex flex-col gap-0.5">
+								{chats.slice(0, 20).map((chat) => (
+									<ChatListItem
+										key={chat.id}
+										name={chat.name}
+										isActive={chat.id === activeChatId}
+										isShared={chat.visibility === "SEARCH_SPACE"}
+										archived={chat.archived}
+										dropdownOpen={openDropdownChatId === chat.id}
+										onDropdownOpenChange={(open) => setOpenDropdownChatId(open ? chat.id : null)}
+										onClick={() => onChatSelect(chat)}
+										onPrefetch={() => onChatPrefetch?.(chat)}
+										onRename={() => onChatRename?.(chat)}
+										onArchive={() => onChatArchive?.(chat)}
+										onDelete={() => onChatDelete?.(chat)}
+									/>
+								))}
 							</div>
 						) : (
 							<p className="px-2 py-1 text-sm text-muted-foreground/60">{t("no_chats")}</p>
 						)}
 					</SidebarSection>
+
+					{footerNavItems.length > 0 && (
+						<NavSection
+							items={footerNavItems}
+							onItemClick={onNavItemClick}
+							isCollapsed={isCollapsed}
+						/>
+					)}
 				</div>
 			)}
 
-			{/* Footer */}
-			<div className="mt-auto border-t">
-				{/* Platform navigation */}
-				{footerNavItems.length > 0 && (
-					<NavSection
-						items={footerNavItems}
-						onItemClick={onNavItemClick}
-						isCollapsed={isCollapsed}
-					/>
-				)}
-
-				<SidebarUsageFooter
-					pageUsage={pageUsage}
-					isCollapsed={isCollapsed}
-					hasNavSectionAbove={footerNavItems.length > 0}
-					onNavigate={onNavigate}
-				/>
-
-				{renderUserProfile && (
+			{/* Footer: solo perfil de usuario */}
+			{renderUserProfile && (
+				<div className="mt-auto border-t">
 					<SidebarUserProfile
 						user={user}
 						onUserSettings={onUserSettings}
@@ -342,93 +318,9 @@ export function Sidebar({
 						theme={theme}
 						setTheme={setTheme}
 					/>
-				)}
-			</div>
+				</div>
+			)}
 		</div>
 	);
 }
 
-function SidebarUsageFooter({
-	pageUsage,
-	isCollapsed,
-	hasNavSectionAbove = false,
-	onNavigate,
-}: {
-	pageUsage?: PageUsage;
-	isCollapsed: boolean;
-	hasNavSectionAbove?: boolean;
-	onNavigate?: () => void;
-}) {
-	const params = useParams();
-	const searchSpaceId = params?.search_space_id ?? "";
-	const isAnonymous = useIsAnonymous();
-
-	if (isCollapsed) return null;
-
-	const containerClass = cn("px-3 py-3 space-y-3", hasNavSectionAbove && "border-t");
-
-	if (isAnonymous) {
-		return (
-			<div className={containerClass}>
-				{pageUsage && (
-					<div className="space-y-1.5">
-						<div className="flex justify-between items-center text-xs">
-							<span className="text-muted-foreground">
-								{pageUsage.pagesUsed.toLocaleString()} / {pageUsage.pagesLimit.toLocaleString()}{" "}
-								tokens
-							</span>
-							<span className="font-medium">
-								{Math.min(
-									(pageUsage.pagesUsed / Math.max(pageUsage.pagesLimit, 1)) * 100,
-									100
-								).toFixed(0)}
-								%
-							</span>
-						</div>
-						<Progress
-							value={Math.min((pageUsage.pagesUsed / Math.max(pageUsage.pagesLimit, 1)) * 100, 100)}
-							className="h-1.5"
-						/>
-					</div>
-				)}
-				<Link
-					href="/register"
-					className="flex items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
-				>
-					Create Free Account
-				</Link>
-			</div>
-		);
-	}
-
-	return (
-		<div className={containerClass}>
-			<CreditBalanceDisplay />
-			<div className="space-y-0.5">
-				<Link
-					href={`/dashboard/${searchSpaceId}/earn-credits`}
-					onClick={onNavigate}
-					className="group flex w-full items-center justify-between rounded-md px-1.5 py-1 transition-colors hover:bg-accent"
-				>
-					<span className="flex items-center gap-1.5 text-xs text-muted-foreground group-hover:text-accent-foreground">
-						<Zap className="h-3 w-3 shrink-0" />
-						Earn credits
-					</span>
-					<Badge className="h-4 rounded px-1 text-[10px] font-semibold leading-none bg-emerald-600 text-white border-transparent hover:bg-emerald-600">
-						FREE
-					</Badge>
-				</Link>
-				<Link
-					href={`/dashboard/${searchSpaceId}/buy-more`}
-					onClick={onNavigate}
-					className="group flex w-full items-center justify-between rounded-md px-1.5 py-1 transition-colors hover:bg-accent"
-				>
-					<span className="flex items-center gap-1.5 text-xs text-muted-foreground group-hover:text-accent-foreground">
-						<CreditCard className="h-3 w-3 shrink-0" />
-						Buy credits
-					</span>
-				</Link>
-			</div>
-		</div>
-	);
-}

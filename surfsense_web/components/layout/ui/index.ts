@@ -4,7 +4,6 @@ export { IconRail, NavIcon, SearchSpaceAvatar } from "./icon-rail";
 export { LayoutShell } from "./shell";
 export {
 	ChatListItem,
-	CreditBalanceDisplay,
 	MobileSidebar,
 	MobileSidebarTrigger,
 	NavSection,

@@ -75,7 +75,14 @@ from app.brain.crag_evaluator import (
     evaluar_chunks,
     EvaluationResult,
 )
-from app.db import User, get_async_session
+from app.db import (
+    User,
+    get_async_session,
+    BrainDomain,
+    BrainDocType,
+    BrainEntityHint,
+    BrainVocabulary,
+)
 from app.users import current_active_user
 
 logger = logging.getLogger(__name__)
@@ -2780,6 +2787,407 @@ def _cleanup_stale_jobs() -> None:
     stale = [jid for jid, m in _ingest_jobs.items() if now - m["created_at"] > _JOB_TTL]
     for jid in stale:
         _ingest_jobs.pop(jid, None)
+
+
+# ── BUG-1 — Vocabulary CRUD endpoints ────────────────────────────────────────
+#
+# Helper: convierte search_space_id → scope label esperado por el frontend.
+
+def _scope(search_space_id) -> str:
+    return "space" if search_space_id is not None else "global"
+
+
+def _domain_to_dict(d: BrainDomain) -> dict:
+    return {
+        "id":            d.id,
+        "domain_key":    d.domain_key,
+        "label":         d.label,
+        "description":   getattr(d, "description", None) or "",
+        "signal_tags":   d.signal_tags or [],
+        "signal_kw":     d.signal_kw or [],
+        "scope":         _scope(d.search_space_id),
+        "is_active":     d.is_active,
+        "search_space_id": d.search_space_id,
+    }
+
+
+def _doctype_to_dict(d: BrainDocType) -> dict:
+    return {
+        "id":             d.id,
+        "type_key":       d.type_key,
+        "label":          d.label,
+        "description":    None,
+        "signal_formats": d.signal_formats or [],
+        "signal_kw":      d.signal_kw or [],
+        "scope":          _scope(d.search_space_id),
+        "is_active":      d.is_active,
+        "search_space_id": d.search_space_id,
+    }
+
+
+def _hint_to_dict(h: BrainEntityHint) -> dict:
+    return {
+        "id":           h.id,
+        "hint_key":     h.hint_key,
+        "label":        h.label,
+        "domain_key":   h.domain_key,
+        "doc_type_key": h.doc_type_key,
+        "patterns":     h.patterns or [],
+        "examples":     h.examples or [],
+        "is_active":    h.is_active,
+        "search_space_id": h.search_space_id,
+    }
+
+
+def _vocab_to_dict(v: BrainVocabulary) -> dict:
+    return {
+        "id":            v.id,
+        "canonical_tag": v.canonical_tag,
+        "aliases":       v.aliases or [],
+        "scope":         _scope(v.search_space_id),
+        "is_active":     v.is_active,
+        "search_space_id": v.search_space_id,
+    }
+
+
+# ── Domains ───────────────────────────────────────────────────────────────────
+
+@router.get("/admin/domains")
+async def list_domains(
+    search_space_id: int,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    await _require_space_access(search_space_id, db, current_user)
+    result = await db.execute(
+        select(BrainDomain).where(
+            (BrainDomain.search_space_id == search_space_id) |
+            (BrainDomain.search_space_id.is_(None))
+        ).order_by(BrainDomain.domain_key)
+    )
+    return [_domain_to_dict(d) for d in result.scalars().all()]
+
+
+@router.post("/admin/domains", status_code=201)
+async def create_domain(
+    body: dict,
+    search_space_id: int,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    await _require_space_access(search_space_id, db, current_user)
+    domain = BrainDomain(
+        domain_key=body["domain_key"],
+        label=body["label"],
+        description=body.get("description", ""),
+        signal_tags=body.get("signal_tags", []),
+        signal_kw=body.get("signal_kw", []),
+        search_space_id=search_space_id,
+        is_active=body.get("is_active", True),
+    )
+    db.add(domain)
+    await db.commit()
+    await db.refresh(domain)
+    return _domain_to_dict(domain)
+
+
+@router.put("/admin/domains/{domain_id}")
+async def update_domain(
+    domain_id: int,
+    body: dict,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    result = await db.execute(select(BrainDomain).where(BrainDomain.id == domain_id))
+    domain = result.scalar_one_or_none()
+    if not domain:
+        raise HTTPException(status_code=404, detail="Dominio no encontrado")
+    for field in ("label", "description", "signal_tags", "signal_kw", "is_active"):
+        if field in body:
+            setattr(domain, field, body[field])
+    await db.commit()
+    await db.refresh(domain)
+    return _domain_to_dict(domain)
+
+
+@router.delete("/admin/domains/{domain_id}", status_code=204)
+async def delete_domain(
+    domain_id: int,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    result = await db.execute(select(BrainDomain).where(BrainDomain.id == domain_id))
+    domain = result.scalar_one_or_none()
+    if not domain:
+        raise HTTPException(status_code=404, detail="Dominio no encontrado")
+    await db.delete(domain)
+    await db.commit()
+
+
+@router.patch("/admin/domains/{domain_id}/toggle-active")
+async def toggle_domain_active(
+    domain_id: int,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    result = await db.execute(select(BrainDomain).where(BrainDomain.id == domain_id))
+    domain = result.scalar_one_or_none()
+    if not domain:
+        raise HTTPException(status_code=404, detail="Dominio no encontrado")
+    domain.is_active = not domain.is_active
+    await db.commit()
+    await db.refresh(domain)
+    return _domain_to_dict(domain)
+
+
+# ── Doc Types ─────────────────────────────────────────────────────────────────
+
+@router.get("/admin/doc-types")
+async def list_doc_types(
+    search_space_id: int,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    await _require_space_access(search_space_id, db, current_user)
+    result = await db.execute(
+        select(BrainDocType).where(
+            (BrainDocType.search_space_id == search_space_id) |
+            (BrainDocType.search_space_id.is_(None))
+        ).order_by(BrainDocType.type_key)
+    )
+    return [_doctype_to_dict(d) for d in result.scalars().all()]
+
+
+@router.post("/admin/doc-types", status_code=201)
+async def create_doc_type(
+    body: dict,
+    search_space_id: int,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    await _require_space_access(search_space_id, db, current_user)
+    dt = BrainDocType(
+        type_key=body["type_key"],
+        label=body["label"],
+        signal_formats=body.get("signal_formats", []),
+        signal_kw=body.get("signal_kw", []),
+        search_space_id=search_space_id,
+        is_active=body.get("is_active", True),
+    )
+    db.add(dt)
+    await db.commit()
+    await db.refresh(dt)
+    return _doctype_to_dict(dt)
+
+
+@router.put("/admin/doc-types/{dt_id}")
+async def update_doc_type(
+    dt_id: int,
+    body: dict,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    result = await db.execute(select(BrainDocType).where(BrainDocType.id == dt_id))
+    dt = result.scalar_one_or_none()
+    if not dt:
+        raise HTTPException(status_code=404, detail="Tipo no encontrado")
+    for field in ("label", "signal_formats", "signal_kw", "is_active"):
+        if field in body:
+            setattr(dt, field, body[field])
+    await db.commit()
+    await db.refresh(dt)
+    return _doctype_to_dict(dt)
+
+
+@router.delete("/admin/doc-types/{dt_id}", status_code=204)
+async def delete_doc_type(
+    dt_id: int,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    result = await db.execute(select(BrainDocType).where(BrainDocType.id == dt_id))
+    dt = result.scalar_one_or_none()
+    if not dt:
+        raise HTTPException(status_code=404, detail="Tipo no encontrado")
+    await db.delete(dt)
+    await db.commit()
+
+
+# ── Entity Hints ──────────────────────────────────────────────────────────────
+
+@router.get("/admin/entity-hints")
+async def list_entity_hints(
+    search_space_id: int,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    await _require_space_access(search_space_id, db, current_user)
+    result = await db.execute(
+        select(BrainEntityHint).where(
+            (BrainEntityHint.search_space_id == search_space_id) |
+            (BrainEntityHint.search_space_id.is_(None))
+        ).order_by(BrainEntityHint.hint_key)
+    )
+    return [_hint_to_dict(h) for h in result.scalars().all()]
+
+
+@router.post("/admin/entity-hints", status_code=201)
+async def create_entity_hint(
+    body: dict,
+    search_space_id: int,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    await _require_space_access(search_space_id, db, current_user)
+    hint = BrainEntityHint(
+        hint_key=body["hint_key"],
+        label=body["label"],
+        domain_key=body.get("domain_key"),
+        doc_type_key=body.get("doc_type_key"),
+        patterns=body.get("patterns", []),
+        examples=body.get("examples", []),
+        search_space_id=search_space_id,
+        is_active=body.get("is_active", True),
+    )
+    db.add(hint)
+    await db.commit()
+    await db.refresh(hint)
+    return _hint_to_dict(hint)
+
+
+@router.put("/admin/entity-hints/{hint_id}")
+async def update_entity_hint(
+    hint_id: int,
+    body: dict,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    result = await db.execute(select(BrainEntityHint).where(BrainEntityHint.id == hint_id))
+    hint = result.scalar_one_or_none()
+    if not hint:
+        raise HTTPException(status_code=404, detail="Entity hint no encontrado")
+    for field in ("label", "domain_key", "doc_type_key", "patterns", "examples", "is_active"):
+        if field in body:
+            setattr(hint, field, body[field])
+    await db.commit()
+    await db.refresh(hint)
+    return _hint_to_dict(hint)
+
+
+@router.delete("/admin/entity-hints/{hint_id}", status_code=204)
+async def delete_entity_hint(
+    hint_id: int,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    result = await db.execute(select(BrainEntityHint).where(BrainEntityHint.id == hint_id))
+    hint = result.scalar_one_or_none()
+    if not hint:
+        raise HTTPException(status_code=404, detail="Entity hint no encontrado")
+    await db.delete(hint)
+    await db.commit()
+
+
+# ── Vocabulary ────────────────────────────────────────────────────────────────
+# IMPORTANTE: /vocabulary/lookup ANTES de /vocabulary/{id} — FastAPI evalúa
+# rutas en orden de registro; sin esta precaución "lookup" sería tratado como id.
+
+@router.get("/admin/vocabulary/lookup")
+async def lookup_vocabulary(
+    tag: str,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    """Busca la tag canónica correspondiente a un alias o a la propia canónica."""
+    from sqlalchemy import or_, func
+    result = await db.execute(
+        select(BrainVocabulary).where(
+            or_(
+                BrainVocabulary.canonical_tag == tag,
+                func.jsonb_exists(BrainVocabulary.aliases, tag),
+            )
+        ).limit(1)
+    )
+    entry = result.scalar_one_or_none()
+    if not entry:
+        return {"canonical_tag": None, "aliases": [], "found": False}
+    return {
+        "canonical_tag": entry.canonical_tag,
+        "aliases":       entry.aliases or [],
+        "found":         True,
+    }
+
+
+@router.get("/admin/vocabulary")
+async def list_vocabulary(
+    search_space_id: int,
+    q: str | None = None,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    await _require_space_access(search_space_id, db, current_user)
+    stmt = select(BrainVocabulary).where(
+        (BrainVocabulary.search_space_id == search_space_id) |
+        (BrainVocabulary.search_space_id.is_(None))
+    )
+    if q:
+        stmt = stmt.where(BrainVocabulary.canonical_tag.ilike(f"%{q}%"))
+    stmt = stmt.order_by(BrainVocabulary.canonical_tag)
+    result = await db.execute(stmt)
+    return [_vocab_to_dict(v) for v in result.scalars().all()]
+
+
+@router.post("/admin/vocabulary", status_code=201)
+async def create_vocabulary_entry(
+    body: dict,
+    search_space_id: int,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    await _require_space_access(search_space_id, db, current_user)
+    entry = BrainVocabulary(
+        canonical_tag=body["canonical_tag"],
+        aliases=body.get("aliases", []),
+        search_space_id=search_space_id,
+        is_active=body.get("is_active", True),
+    )
+    db.add(entry)
+    await db.commit()
+    await db.refresh(entry)
+    return _vocab_to_dict(entry)
+
+
+@router.put("/admin/vocabulary/{vocab_id}")
+async def update_vocabulary_entry(
+    vocab_id: int,
+    body: dict,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    result = await db.execute(select(BrainVocabulary).where(BrainVocabulary.id == vocab_id))
+    entry = result.scalar_one_or_none()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entrada no encontrada")
+    for field in ("canonical_tag", "aliases", "is_active"):
+        if field in body:
+            setattr(entry, field, body[field])
+    await db.commit()
+    await db.refresh(entry)
+    return _vocab_to_dict(entry)
+
+
+@router.delete("/admin/vocabulary/{vocab_id}", status_code=204)
+async def delete_vocabulary_entry(
+    vocab_id: int,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    result = await db.execute(select(BrainVocabulary).where(BrainVocabulary.id == vocab_id))
+    entry = result.scalar_one_or_none()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Entrada no encontrada")
+    await db.delete(entry)
+    await db.commit()
 
 
 # ── F5 — Ingesta de texto desde chat (sin re-fetch del conector) ──────────────

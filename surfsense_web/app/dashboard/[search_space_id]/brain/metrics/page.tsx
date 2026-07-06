@@ -209,7 +209,7 @@ export default function BrainMetricsPage() {
   const isLoading = statsLoading || levelLoading;
 
   return (
-    <div className="flex flex-col gap-6 p-6 max-w-5xl mx-auto w-full">
+    <div className="dark flex flex-col gap-6 p-6 max-w-5xl mx-auto w-full">
       {/* Breadcrumb */}
       <BrainBreadcrumb spaceId={spaceId} current="Métricas" />
 
@@ -291,7 +291,7 @@ export default function BrainMetricsPage() {
 
           {/* ── Sección 2: Distribución de niveles ──────────────────────── */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-5">
+            <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-4 flex items-center gap-2">
                 <TrendingUp className="h-3.5 w-3.5" />
                 Uso de niveles (últimas {levelUsage?.period_hours ?? 24}h)
@@ -314,7 +314,7 @@ export default function BrainMetricsPage() {
             </div>
 
             {/* ── Sección 3: Categorías A/B/C ─────────────────────────── */}
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-5">
+            <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-4 flex items-center gap-2">
                 <Layers className="h-3.5 w-3.5" />
                 Distribución por categoría del pipeline
@@ -361,7 +361,7 @@ export default function BrainMetricsPage() {
 
           {/* ── Sección 4: Top fuentes ──────────────────────────────────── */}
           {topSources.length > 0 && (
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-5">
+            <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5">
               <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-4 flex items-center gap-2">
                 <FileText className="h-3.5 w-3.5" />
                 Top fuentes por importancia

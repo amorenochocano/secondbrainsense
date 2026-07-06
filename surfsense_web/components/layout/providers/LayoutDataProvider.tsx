@@ -3,7 +3,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
-	AlertTriangle,
 	BarChart2,
 	BookMarked,
 	BookOpen,
@@ -203,45 +202,6 @@ export function LayoutDataProvider({ searchSpaceId, children }: LayoutDataProvid
 	useEffect(() => {
 		setStatusInboxItems(statusInbox.inboxItems);
 	}, [statusInbox.inboxItems, setStatusInboxItems]);
-
-	// Track seen notification IDs to detect new insufficient_credits notifications
-	const seenCreditNotifications = useRef<Set<number>>(new Set());
-	const isInitialLoad = useRef(true);
-
-	// Effect to show toast for new insufficient_credits notifications
-	useEffect(() => {
-		if (statusInbox.loading) return;
-
-		const creditNotifications = statusInbox.inboxItems.filter(
-			(item) => item.type === "insufficient_credits"
-		);
-
-		if (isInitialLoad.current) {
-			for (const notification of creditNotifications) {
-				seenCreditNotifications.current.add(notification.id);
-			}
-			isInitialLoad.current = false;
-			return;
-		}
-
-		const newNotifications = creditNotifications.filter(
-			(notification) => !seenCreditNotifications.current.has(notification.id)
-		);
-
-		for (const notification of newNotifications) {
-			seenCreditNotifications.current.add(notification.id);
-
-			toast.error(notification.title, {
-				description: notification.message,
-				duration: 8000,
-				icon: <AlertTriangle className="h-5 w-5 text-amber-500" />,
-				action: {
-					label: "Buy credits",
-					onClick: () => router.push(`/dashboard/${searchSpaceId}/buy-more`),
-				},
-			});
-		}
-	}, [statusInbox.inboxItems, statusInbox.loading, searchSpaceId, router]);
 
 	// Delete dialogs state
 	const [showDeleteChatDialog, setShowDeleteChatDialog] = useState(false);
