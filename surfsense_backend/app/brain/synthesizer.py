@@ -89,6 +89,34 @@ def _get_model_profile(model_name: str, provider: str):
         return None
 
 
+def _inject_search_space_id(md_content: str, search_space_id: str) -> str:
+    """
+    Inyecta o actualiza search_space_id en el bloque YAML frontmatter.
+    Si ya existe el campo, lo reemplaza. Si no, lo inserta antes del cierre ---.
+    """
+    if not search_space_id or not md_content:
+        return md_content
+
+    if re.search(r"^search_space_id:", md_content, re.MULTILINE):
+        return re.sub(
+            r"^(search_space_id:).*$",
+            f'search_space_id: "{search_space_id}"',
+            md_content,
+            flags=re.MULTILINE,
+        )
+
+    match = re.search(r"^---\n(.*?)\n---", md_content, re.DOTALL)
+    if match:
+        insert_pos = match.end(1)
+        return (
+            md_content[:insert_pos]
+            + f'\nsearch_space_id: "{search_space_id}"'
+            + md_content[insert_pos:]
+        )
+
+    return md_content
+
+
 def _ensure_frontmatter(md_content: str, source: str, file_type: str, metadata: dict) -> str:
     """
     Garantiza que el .md tenga un bloque YAML frontmatter válido.
@@ -210,6 +238,7 @@ class DocumentSynthesizer:
         model: str | None = None,
         current_md: str | None = None,
         ingest_metadata: dict | None = None,
+        search_space_id: str = "",
     ) -> dict:
         """
         Genera pasaporte semántico (FLUJO HÍBRIDO v3.0).
@@ -230,7 +259,9 @@ class DocumentSynthesizer:
         """
         if not SYNTHESIS_ENABLED:
             log.info("SYNTHESIS_ENABLED=false, generando frontmatter mínimo.")
-            return self._minimal_passport(source, file_type, metadata or {})
+            result = self._minimal_passport(source, file_type, metadata or {})
+            result["md_content"] = _inject_search_space_id(result["md_content"], search_space_id)
+            return result
 
         if not full_text or not full_text.strip():
             log.warning("Texto vacío para síntesis de '%s'.", source)
@@ -594,7 +625,7 @@ class DocumentSynthesizer:
                 partial_passport, processed_text, source, entities, tags_base
             )
             return {
-                "md_content": md_fallback,
+                "md_content": _inject_search_space_id(md_fallback, search_space_id),
                 "tags": normalize_tags(tags_base, cap=12),
                 "entities": entities,
                 "drill_down_triggers": triggers,
@@ -620,7 +651,7 @@ class DocumentSynthesizer:
         )
 
         return {
-            "md_content": md_final,
+            "md_content": _inject_search_space_id(md_final, search_space_id),
             "tags": final_tags if final_tags else tags_base,
             "entities": final_entities if final_entities else entities,
             "drill_down_triggers": triggers,
@@ -943,6 +974,7 @@ def synthesize(
     model: str | None = None,
     current_md: str | None = None,
     ingest_metadata: dict | None = None,
+    search_space_id: str = "",
 ) -> dict:
     """Función de conveniencia — wrapper del singleton DocumentSynthesizer."""
     return _synthesizer.synthesize(
@@ -955,4 +987,5 @@ def synthesize(
         model=model,
         current_md=current_md,
         ingest_metadata=ingest_metadata,
+        search_space_id=search_space_id,
     )

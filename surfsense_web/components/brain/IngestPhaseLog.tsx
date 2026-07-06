@@ -68,11 +68,11 @@ function PhaseStatusIcon({ status }: PhaseStatusIconProps) {
     case "warn":
       return <AlertCircle className="h-5 w-5 text-amber-400" />;
     case "skip":
-      return <SkipForward className="h-5 w-5 text-slate-400" />;
+      return <SkipForward className="h-5 w-5 text-muted-foreground" />;
     default:
       // idle
       return (
-        <span className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-slate-600 bg-transparent" />
+        <span className="flex h-5 w-5 items-center justify-center rounded-full border-2 border-border bg-transparent" />
       );
   }
 }
@@ -93,7 +93,7 @@ function PhaseProgressBar({ status }: PhaseProgressBarProps) {
     : /* error */            "w-full bg-red-500";
 
   return (
-    <div className="h-0.5 w-full rounded-full bg-slate-700/60 overflow-hidden mt-1">
+    <div className="h-0.5 w-full rounded-full bg-border/50 overflow-hidden mt-1">
       <div
         className={cn(
           "h-full rounded-full transition-all duration-700",
@@ -165,10 +165,10 @@ export function IngestPhaseLog({ jobId, onComplete, onError }: IngestPhaseLogPro
   if (!jobId) return null;
 
   return (
-    <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 space-y-1">
+    <div className="rounded-xl border border-border bg-card p-4 space-y-1">
       {/* Cabecera */}
       <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+        <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
           Pipeline de ingesta
         </span>
         {done && (
@@ -204,7 +204,7 @@ export function IngestPhaseLog({ jobId, onComplete, onError }: IngestPhaseLogPro
                   <span
                     className={cn(
                       "w-px flex-1 rounded-full transition-colors duration-500",
-                      isDone || isError ? "bg-slate-600" : "bg-slate-700",
+                      isDone || isError ? "bg-border" : "bg-border/50",
                     )}
                     style={{ minHeight: "12px" }}
                   />
@@ -214,7 +214,7 @@ export function IngestPhaseLog({ jobId, onComplete, onError }: IngestPhaseLogPro
               {/* Contenido */}
               <div className="flex-1 min-w-0">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-sm font-semibold text-slate-200">
+                  <span className="text-sm font-semibold text-foreground">
                     {phase.icon} {phase.label}
                   </span>
                   {state.chunks !== null && state.chunks > 0 && (
@@ -226,12 +226,12 @@ export function IngestPhaseLog({ jobId, onComplete, onError }: IngestPhaseLogPro
                 <p
                   className={cn(
                     "text-xs mt-0.5 transition-colors",
-                    state.status === "idle"    && "text-slate-500",
+                    state.status === "idle"    && "text-muted-foreground",
                     state.status === "running" && "text-violet-300",
                     state.status === "ok"      && "text-emerald-400",
                     state.status === "warn"    && "text-amber-400",
                     state.status === "error"   && "text-red-400",
-                    state.status === "skip"    && "text-slate-400",
+                    state.status === "skip"    && "text-muted-foreground",
                   )}
                 >
                   {state.detail ?? phase.detail}

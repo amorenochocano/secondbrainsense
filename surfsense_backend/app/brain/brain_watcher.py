@@ -12,7 +12,8 @@ Flujo:
 
 Decisión de diseño (DT-F3-watcher):
   BrainIngestor genera IDs deterministas con md5(source+idx) → upsert idempotente.
-  El borrado selectivo por search_space_id se delega a F6 (Admin UI).
+  search_space_id se lee del frontmatter YAML del .md (fuente de verdad).
+  Fallback: se rescata del payload Qdrant de los chunks existentes antes de borrarlos.
 
 Variables de entorno relevantes:
   BRAIN_DIR       — directorio de pasaportes .md (default: /data/brain)
@@ -50,12 +51,12 @@ def _source_from_md_path(md_path: str) -> str:
     return Path(md_path).stem  # ej: "mi-documento"
 
 
-def _delete_old_chunks(qdrant_client, slug: str):
+def _delete_old_chunks(qdrant_client, slug: str) -> str:
     """
     Borra en c_brain todos los chunks cuyo source coincida con el slug del .md.
-    Primero intenta match exacto por slug, luego por source que contenga el slug.
+    Devuelve el search_space_id encontrado en los chunks existentes (o "" si no hay).
     """
-    from qdrant_client.models import PointIdsList, Filter, FieldCondition, MatchValue
+    from qdrant_client.models import PointIdsList
 
     try:
         log.debug("[watcher] Buscando chunks existentes para slug '%s' en '%s'", slug, C_BRAIN)
@@ -64,24 +65,39 @@ def _delete_old_chunks(qdrant_client, slug: str):
             with_payload=True,
             limit=10000,
         )
-        # Busca chunks cuyo source genere el mismo slug
         from app.brain.writer import _slugify
-        ids = [
-            p.id for p in result
+        matching = [
+            p for p in result
             if p.payload and _slugify(p.payload.get("source", "")) == slug
         ]
+        # Rescatar search_space_id antes de borrar (fallback si frontmatter no lo tiene)
+        search_space_id = ""
+        for p in matching:
+            sid = p.payload.get("search_space_id", "")
+            if sid:
+                search_space_id = sid
+                break
+
+        ids = [p.id for p in matching]
         if ids:
             qdrant_client.delete(
                 collection_name=C_BRAIN,
                 points_selector=PointIdsList(points=ids),
             )
-            log.info("[watcher] Borrados %d chunks de c_brain para slug '%s'", len(ids), slug)
+            log.info(
+                "[watcher] Borrados %d chunks de c_brain para slug '%s' (space=%s)",
+                len(ids), slug, search_space_id or "—",
+            )
         else:
-            log.info("[watcher] No se encontraron chunks previos para slug '%s' (total puntos en coleccion: %d)", slug, len(result))
-        return ids
+            log.info(
+                "[watcher] No se encontraron chunks previos para slug '%s' "
+                "(total puntos en coleccion: %d)",
+                slug, len(result),
+            )
+        return search_space_id
     except Exception as exc:
         log.error("[watcher] Error borrando chunks para '%s': %s", slug, exc, exc_info=True)
-        return []
+        return ""
 
 
 def _reingest_md(md_path: str):
@@ -92,17 +108,13 @@ def _reingest_md(md_path: str):
     pipeline principal. El modelo de embedding se lee de EMBED_MODEL (entorno)
     para garantizar coherencia con las dimensiones de la colección brain.
 
-    Decisión de diseño F3 (DT-F3-watcher):
-      BrainIngestor.ingest_md() genera IDs deterministas con md5(source+idx),
-      por lo que re-ingestar el mismo .md es un upsert idempotente — no crea
-      duplicados aunque no se haya borrado el tenant anterior.
-      El borrado selectivo por search_space_id se delega a F6 (Admin UI).
+    search_space_id se obtiene del frontmatter YAML (fuente de verdad).
+    Fallback: se rescata del payload Qdrant existente antes de borrar.
     """
     from qdrant_client import QdrantClient
-    from app.brain.ingest_router import _embed       # FIX F3.6: sustituye ingest_utils inexistente
+    from app.brain.ingest_router import _embed
     from app.brain.brain_ingest import BrainIngestor
 
-    # Modelo de embedding desde entorno — debe coincidir con la dimensión de la colección brain
     embed_model_name: str = os.getenv("EMBED_MODEL", "nomic-embed-text")
 
     slug = _source_from_md_path(md_path)
@@ -110,7 +122,7 @@ def _reingest_md(md_path: str):
              md_path, slug, embed_model_name)
 
     try:
-        content = Path(md_path).read_text(encoding="utf-8").lstrip("\ufeff")
+        content = Path(md_path).read_text(encoding="utf-8").lstrip("﻿")
         log.debug("[watcher] Leídos %d caracteres de '%s'", len(content), md_path)
     except Exception as exc:
         log.error("[watcher] No se pudo leer '%s': %s", md_path, exc, exc_info=True)
@@ -120,27 +132,53 @@ def _reingest_md(md_path: str):
         log.warning("[watcher] '%s' está vacío, se omite.", md_path)
         return
 
+    # Fuente de verdad: search_space_id del frontmatter YAML
+    search_space_id_from_fm = ""
+    try:
+        import yaml as _yaml
+        import re as _re
+        fm_match = _re.search(r"^---\n(.*?)\n---", content, _re.DOTALL)
+        if fm_match:
+            fm = _yaml.safe_load(fm_match.group(1)) or {}
+            search_space_id_from_fm = str(fm.get("search_space_id", "") or "")
+    except Exception:
+        pass
+
     try:
         qdrant_client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 
-        # Borrar chunks previos (sin filtro por search_space_id — ver DT-F3-watcher)
-        _delete_old_chunks(qdrant_client, slug)
+        # Borrar chunks previos; retorna search_space_id del payload Qdrant (fallback)
+        search_space_id_from_qdrant = _delete_old_chunks(qdrant_client, slug)
 
-        # FIX F3.6: embed_model usa _embed(text, model) de ingest_router.
-        # El modelo se lee de EMBED_MODEL para coherencia con la colección brain.
+        # Fuente de verdad: frontmatter. Fallback: payload Qdrant existente.
+        search_space_id = search_space_id_from_fm or search_space_id_from_qdrant
+        if not search_space_id:
+            log.warning(
+                "[watcher] search_space_id no encontrado para '%s' — "
+                "documento no visible en ningún space", slug,
+            )
+
         embed_model = type("EmbedModel", (), {
             "embed": staticmethod(lambda t: _embed(t, embed_model_name))
         })
         ingestor = BrainIngestor(qdrant_client, embed_model, collection=C_BRAIN)
 
-        log.debug("[watcher] Vectorizando '%s' en colección '%s'", slug, C_BRAIN)
+        metadata: dict = {"md_path": md_path}
+        if search_space_id:
+            metadata["search_space_id"] = search_space_id
+
+        log.debug(
+            "[watcher] Vectorizando '%s' en colección '%s' (space=%s)",
+            slug, C_BRAIN, search_space_id or "—",
+        )
         chunks_created = ingestor.ingest_md(
-            source=slug, md_content=content, metadata={"md_path": md_path}
+            source=slug, md_content=content, metadata=metadata
         )
         log.info(
             "[watcher] Re-ingestión completada: path='%s' slug='%s' "
-            "colección='%s' chunks=%d chars=%d",
+            "colección='%s' chunks=%d chars=%d space=%s",
             md_path, slug, C_BRAIN, chunks_created, len(content),
+            search_space_id or "—",
         )
     except Exception as exc:
         log.error("[watcher] Error re-ingestando '%s': %s", md_path, exc, exc_info=True)

@@ -287,8 +287,19 @@ services:
 
   frontend:
     container_name: surfsense-frontend
-    <<: *corp-cert
-    image: ghcr.io/modsetter/surfsense-web:${SURFSENSE_VERSION:-latest}
+    build:
+      context: ../surfsense_web
+      dockerfile: Dockerfile
+      additional_contexts:
+        repo_root: ..
+      args:
+        NEXT_PUBLIC_FASTAPI_BACKEND_URL: ${NEXT_PUBLIC_FASTAPI_BACKEND_URL:-http://localhost:${BACKEND_PORT:-8929}}
+        NEXT_PUBLIC_FASTAPI_BACKEND_AUTH_TYPE: ${AUTH_TYPE:-LOCAL}
+        NEXT_PUBLIC_ETL_SERVICE: ${ETL_SERVICE:-DOCLING}
+        NEXT_PUBLIC_ZERO_CACHE_URL: ${NEXT_PUBLIC_ZERO_CACHE_URL:-http://localhost:${ZERO_CACHE_PORT:-5929}}
+        NEXT_PUBLIC_DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-self-hosted}
+    volumes:
+      - ../netskope-ca-bundle.crt:/certs/corp-root.crt:ro
     ports:
       - "${FRONTEND_PORT:-3929}:3000"
     environment:
@@ -299,8 +310,6 @@ services:
       NEXT_PUBLIC_DEPLOYMENT_MODE: ${DEPLOYMENT_MODE:-self-hosted}
       NEXT_PUBLIC_WHATSAPP_DISPLAY_PHONE_NUMBER: ${WHATSAPP_SHARED_DISPLAY_PHONE_NUMBER:-}
       FASTAPI_BACKEND_INTERNAL_URL: ${FASTAPI_BACKEND_INTERNAL_URL:-http://backend:8000}
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
     depends_on:
       backend:
         condition: service_healthy

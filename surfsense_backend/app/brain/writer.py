@@ -314,6 +314,7 @@ class BrainWriter:
             "projects":       [],
             "created_at":     "",
             "updated_at":     "",
+            "search_space_id": "",
         }
         try:
             content = md_path.read_text(encoding="utf-8")
@@ -329,7 +330,7 @@ class BrainWriter:
 
             # Campos escalares simples
             for key in ("id", "type", "domain", "subdomain", "importance",
-                        "confidence", "refresh_policy", "raw_ingest"):
+                        "confidence", "refresh_policy", "raw_ingest", "search_space_id"):
                 if key in parsed:
                     meta[key] = parsed[key]
 

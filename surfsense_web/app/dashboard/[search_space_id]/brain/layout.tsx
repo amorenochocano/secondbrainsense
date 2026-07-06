@@ -30,7 +30,7 @@ export default function BrainLayout({ children, params }: BrainLayoutProps) {
   const { search_space_id } = use(params);
 
   return (
-    <div className="dark flex flex-col h-full bg-slate-900 text-slate-100">
+    <div className="flex flex-col h-full bg-background text-foreground">
       <BrainBreadcrumb searchSpaceId={search_space_id} />
       <div className="flex-1 overflow-auto">{children}</div>
     </div>

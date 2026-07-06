@@ -125,7 +125,7 @@ function ModelSelector({ value, onValueChange, disabled, recommendedModel }: Mod
   return (
     <div className="flex items-center gap-2 flex-1 min-w-48">
       <Select value={value} onValueChange={onValueChange} disabled={disabled || isLoading}>
-        <SelectTrigger className="bg-slate-900/50 border-slate-700 text-sm text-slate-200">
+        <SelectTrigger className="bg-muted/50 border-input text-sm text-foreground">
           <SelectValue placeholder="Selecciona modelo…" />
         </SelectTrigger>
         <SelectContent>
@@ -137,7 +137,7 @@ function ModelSelector({ value, onValueChange, disabled, recommendedModel }: Mod
           </SelectItem>
           {isLoading && (
             <SelectItem value="__loading__" disabled>
-              <span className="flex items-center gap-2 text-slate-400">
+              <span className="flex items-center gap-2 text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" /> Cargando modelos…
               </span>
             </SelectItem>
@@ -196,7 +196,7 @@ function SuccessBanner({ spaceId, onNewIngest, onGoMonitor }: {
         </Button>
         <Button
           variant="outline" size="sm" onClick={onNewIngest}
-          className="border-slate-600 text-slate-300 gap-1.5"
+          className="border-border00 text-foreground/80 gap-1.5"
         >
           <ArrowRight className="h-3.5 w-3.5" /> Ingestar otro
         </Button>
@@ -231,8 +231,8 @@ function MonitorTable({ spaceId, onOpenWiki }: {
   if (passports.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-4 text-center">
-        <Database className="h-10 w-10 text-slate-500" />
-        <p className="text-sm text-slate-400">Sin documentos ingestados aún.</p>
+        <Database className="h-10 w-10 text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">Sin documentos ingestados aún.</p>
       </div>
     );
   }
@@ -241,7 +241,7 @@ function MonitorTable({ spaceId, onOpenWiki }: {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-slate-700/60 text-xs text-slate-500 uppercase tracking-wider">
+          <tr className="border-b border-border text-xs text-muted-foreground uppercase tracking-wider">
             <th className="text-left pb-3 pr-4 font-medium">Documento</th>
             <th className="text-left pb-3 pr-4 font-medium">Dominio</th>
             <th className="text-left pb-3 pr-4 font-medium">Categoría</th>
@@ -249,28 +249,28 @@ function MonitorTable({ spaceId, onOpenWiki }: {
             <th className="pb-3 font-medium" />
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-700/30">
+        <tbody className="divide-y divide-border/50">
           {passports.map((passport) => {
             const ext = extractExtension(passport.source);
             const isUrl = passport.source.startsWith("http");
             const category = getCategoryForExtension(ext, isUrl);
             return (
-              <tr key={passport.source} className="group hover:bg-slate-800/30 transition-colors">
+              <tr key={passport.source} className="group hover:bg-muted/40 transition-colors">
                 <td className="py-3 pr-4">
                   <div className="flex items-center gap-2 max-w-xs">
-                    <FileText className="h-3.5 w-3.5 shrink-0 text-slate-500" />
-                    <span className="truncate text-slate-200 font-medium" title={passport.source}>
+                    <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span className="truncate text-foreground font-medium" title={passport.source}>
                       {passport.source.split("/").pop() ?? passport.source}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500 truncate max-w-xs mt-0.5 pl-[22px]" title={passport.source}>
+                  <p className="text-xs text-muted-foreground truncate max-w-xs mt-0.5 pl-[22px]" title={passport.source}>
                     {passport.source}
                   </p>
                 </td>
                 <td className="py-3 pr-4"><DomainBadge domain={passport.domain} size="sm" /></td>
                 <td className="py-3 pr-4"><CategoryBadge category={category} /></td>
                 <td className="py-3 pr-4">
-                  <span className="flex items-center gap-1 text-xs text-slate-400 whitespace-nowrap">
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap">
                     <Clock className="h-3 w-3" />
                     {formatDate(passport.updated_at)}
                   </span>
@@ -368,7 +368,7 @@ function ConnectorTab({ spaceId, selectedModel, isIngesting, onStartJob }: Conne
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12 gap-2 text-slate-400 text-sm">
+      <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground text-sm">
         <Loader2 className="h-4 w-4 animate-spin" /> Cargando conectores…
       </div>
     );
@@ -379,7 +379,7 @@ function ConnectorTab({ spaceId, selectedModel, isIngesting, onStartJob }: Conne
       <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
         <AlertCircle className="h-6 w-6 text-red-400" />
         <p className="text-sm text-red-400">Error al cargar los conectores.</p>
-        <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-1.5 border-slate-600 text-slate-300">
+        <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-1.5 border-border00 text-foreground/80">
           <RefreshCw className="h-3.5 w-3.5" /> Reintentar
         </Button>
       </div>
@@ -392,17 +392,17 @@ function ConnectorTab({ spaceId, selectedModel, isIngesting, onStartJob }: Conne
   return (
     <div className="space-y-4">
       {/* Selector de conector */}
-      <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-5 space-y-4">
+      <div className="rounded-xl border border-border bg-card p-5 space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Plug className="h-4 w-4 text-violet-400" />
-            <h2 className="text-sm font-semibold text-slate-200">Conector externo</h2>
+            <h2 className="text-sm font-semibold text-foreground">Conector externo</h2>
           </div>
           <button
             type="button"
             onClick={() => refetch()}
             disabled={isFetching}
-            className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-300 transition-colors"
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground/80 transition-colors"
           >
             <RefreshCw className={cn("h-3 w-3", isFetching && "animate-spin")} />
             Actualizar
@@ -410,7 +410,7 @@ function ConnectorTab({ spaceId, selectedModel, isIngesting, onStartJob }: Conne
         </div>
 
         {available.length === 0 && unavailable.length === 0 ? (
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-muted-foreground">
             No hay conectores configurados. Añade uno desde la sección de fuentes del espacio.
           </p>
         ) : (
@@ -423,16 +423,16 @@ function ConnectorTab({ spaceId, selectedModel, isIngesting, onStartJob }: Conne
                 className={cn(
                   "w-full flex items-center justify-between rounded-lg border px-3 py-2 text-left text-sm transition-colors",
                   selectedConnector?.connector_id === c.connector_id
-                    ? "border-violet-500/60 bg-violet-500/10 text-slate-100"
-                    : "border-slate-700/40 bg-slate-900/30 text-slate-300 hover:border-slate-600 hover:bg-slate-800/40",
+                    ? "border-violet-500/60 bg-violet-500/10 text-foreground"
+                    : "border-border/60 bg-muted/30 text-foreground/80 hover:border-border hover:bg-muted/40",
                 )}
               >
                 <div className="flex items-center gap-2">
-                  <Plug className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                  <Plug className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   <span className="font-medium">{c.name}</span>
-                  <span className="text-[10px] text-slate-500 font-mono">{c.connector_type}</span>
+                  <span className="text-[10px] text-muted-foreground font-mono">{c.connector_type}</span>
                 </div>
-                <Badge variant="outline" className="text-[10px] px-1.5 border-slate-600 text-slate-400">
+                <Badge variant="outline" className="text-[10px] px-1.5 border-border00 text-muted-foreground">
                   {c.family}
                 </Badge>
               </button>
@@ -440,11 +440,11 @@ function ConnectorTab({ spaceId, selectedModel, isIngesting, onStartJob }: Conne
             {unavailable.map((c) => (
               <div
                 key={c.connector_id}
-                className="w-full flex items-center justify-between rounded-lg border border-slate-700/30 bg-slate-900/20 px-3 py-2 text-sm opacity-50"
+                className="w-full flex items-center justify-between rounded-lg border border-border/40 bg-muted/20 px-3 py-2 text-sm opacity-50"
               >
                 <div className="flex items-center gap-2">
-                  <Plug className="h-3.5 w-3.5 text-slate-500 shrink-0" />
-                  <span className="text-slate-400">{c.name}</span>
+                  <Plug className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-muted-foreground">{c.name}</span>
                 </div>
                 <span className="text-[10px] text-red-400">requiere reautenticación</span>
               </div>
@@ -455,39 +455,39 @@ function ConnectorTab({ spaceId, selectedModel, isIngesting, onStartJob }: Conne
 
       {/* Formulario de ítem — visible solo cuando hay conector seleccionado */}
       {selectedConnector && (
-        <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-5 space-y-4">
+        <div className="rounded-xl border border-border bg-card p-5 space-y-4">
           <div className="flex items-center gap-2">
             <FileText className="h-4 w-4 text-violet-400" />
-            <h2 className="text-sm font-semibold text-slate-200">
+            <h2 className="text-sm font-semibold text-foreground">
               Ítem a ingestar
-              <span className="ml-2 text-xs font-normal text-slate-500 font-mono">{selectedConnector.name}</span>
+              <span className="ml-2 text-xs font-normal text-muted-foreground font-mono">{selectedConnector.name}</span>
             </h2>
           </div>
 
           <div className="space-y-3">
             <div className="space-y-1">
-              <label className="text-xs text-slate-400">ID del ítem (file_id, item_id, thread_id…)</label>
+              <label className="text-xs text-muted-foreground">ID del ítem (file_id, item_id, thread_id…)</label>
               <Input
                 placeholder="abc123-def456"
                 value={itemId}
                 onChange={(e) => setItemId(e.target.value)}
-                className="font-mono text-sm bg-slate-900/50 border-slate-700 focus:border-violet-500 text-slate-200 placeholder:text-slate-600"
+                className="font-mono text-sm bg-muted/50 border-input focus:border-violet-500 text-foreground placeholder:text-muted-foreground/60"
                 disabled={isIngesting}
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-slate-400">Nombre de fichero (con extensión)</label>
+              <label className="text-xs text-muted-foreground">Nombre de fichero (con extensión)</label>
               <div className="flex items-center gap-2">
                 <Input
                   placeholder="documento.pdf"
                   value={filename}
                   onChange={(e) => handleFilenameChange(e.target.value)}
-                  className="font-mono text-sm bg-slate-900/50 border-slate-700 focus:border-violet-500 text-slate-200 placeholder:text-slate-600"
+                  className="font-mono text-sm bg-muted/50 border-input focus:border-violet-500 text-foreground placeholder:text-muted-foreground/60"
                   disabled={isIngesting}
                 />
                 {isKnownFormat !== null && <FormatBadge isKnown={isKnownFormat} />}
               </div>
-              <p className="text-[10px] text-slate-500 mt-1">
+              <p className="text-[10px] text-muted-foreground mt-1">
                 Badge verde: extractor nativo. Badge amarillo: fallback (se procesará como texto o metadata binaria).
               </p>
             </div>
@@ -638,11 +638,11 @@ export default function BrainIngestPage() {
 
       {/* Cabecera */}
       <div>
-        <h1 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+        <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
           <Upload className="h-5 w-5 text-violet-400" />
           Ingesta avanzada
         </h1>
-        <p className="text-sm text-slate-400 mt-1">
+        <p className="text-sm text-muted-foreground mt-1">
           Añade documentos al Brain por URL, fichero subido o ruta local del servidor.
         </p>
       </div>
@@ -683,23 +683,23 @@ export default function BrainIngestPage() {
 
             {/* ── URL ────────────────────────────────────────────────────────── */}
             <TabsContent value="url" className="mt-4">
-              <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-5 space-y-4">
+              <div className="rounded-xl border border-border bg-card p-5 space-y-4">
                 <div className="flex items-center gap-2">
                   <Link2 className="h-4 w-4 text-violet-400" />
-                  <h2 className="text-sm font-semibold text-slate-200">URL del documento</h2>
+                  <h2 className="text-sm font-semibold text-foreground">URL del documento</h2>
                 </div>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-muted-foreground">
                   Soporta páginas web (HTML), PDFs, Markdown, código fuente y documentos Office.
                   La URL debe ser accesible desde el servidor.
                 </p>
                 <div className="relative">
-                  <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                  <Link2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     type="url"
                     placeholder="https://ejemplo.com/documento.pdf"
                     value={url}
                     onChange={(e) => { setUrl(e.target.value); resetIngest(); }}
-                    className="pl-9 font-mono text-sm bg-slate-900/50 border-slate-700 focus:border-violet-500 text-slate-200 placeholder:text-slate-600"
+                    className="pl-9 font-mono text-sm bg-muted/50 border-input focus:border-violet-500 text-foreground placeholder:text-muted-foreground/60"
                     disabled={isIngesting}
                   />
                 </div>
@@ -725,12 +725,12 @@ export default function BrainIngestPage() {
 
             {/* ── Fichero ─────────────────────────────────────────────────────── */}
             <TabsContent value="file" className="mt-4">
-              <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-5 space-y-4">
+              <div className="rounded-xl border border-border bg-card p-5 space-y-4">
                 <div className="flex items-center gap-2">
                   <FileText className="h-4 w-4 text-violet-400" />
-                  <h2 className="text-sm font-semibold text-slate-200">Subir fichero</h2>
+                  <h2 className="text-sm font-semibold text-foreground">Subir fichero</h2>
                 </div>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-muted-foreground">
                   PDF, Word, Excel, PowerPoint, Markdown, código fuente, CSV, JSON, XML, DrawIO, Jupyter…
                 </p>
 
@@ -740,7 +740,7 @@ export default function BrainIngestPage() {
                     "relative rounded-lg border-2 border-dashed p-8 text-center cursor-pointer transition-colors",
                     dragOver
                       ? "border-violet-400 bg-violet-500/10"
-                      : "border-slate-600 hover:border-slate-500 bg-slate-900/30",
+                      : "border-border hover:border-primary/40 bg-muted/30",
                   )}
                   onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                   onDragLeave={() => setDragOver(false)}
@@ -759,8 +759,8 @@ export default function BrainIngestPage() {
                   {droppedFile ? (
                     <div className="flex flex-col items-center gap-2">
                       <FileText className="h-8 w-8 text-violet-400" />
-                      <p className="text-sm font-medium text-slate-200">{droppedFile.name}</p>
-                      <p className="text-xs text-slate-400">
+                      <p className="text-sm font-medium text-foreground">{droppedFile.name}</p>
+                      <p className="text-xs text-muted-foreground">
                         {(droppedFile.size / 1024).toFixed(1)} KB
                         {" · "}
                         <button
@@ -774,8 +774,8 @@ export default function BrainIngestPage() {
                     </div>
                   ) : (
                     <div className="flex flex-col items-center gap-2">
-                      <Upload className="h-8 w-8 text-slate-500" />
-                      <p className="text-sm text-slate-400">
+                      <Upload className="h-8 w-8 text-muted-foreground" />
+                      <p className="text-sm text-muted-foreground">
                         Arrastra un fichero aquí o <span className="text-violet-400 underline">selecciona uno</span>
                       </p>
                     </div>
@@ -804,22 +804,22 @@ export default function BrainIngestPage() {
 
             {/* ── Ruta local ──────────────────────────────────────────────────── */}
             <TabsContent value="path" className="mt-4">
-              <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-5 space-y-4">
+              <div className="rounded-xl border border-border bg-card p-5 space-y-4">
                 <div className="flex items-center gap-2">
                   <Server className="h-4 w-4 text-violet-400" />
-                  <h2 className="text-sm font-semibold text-slate-200">Ruta local del servidor</h2>
+                  <h2 className="text-sm font-semibold text-foreground">Ruta local del servidor</h2>
                 </div>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-muted-foreground">
                   Ruta absoluta de un fichero accesible desde el servidor backend.
                   Útil para volúmenes montados o directorios compartidos en red.
                 </p>
                 <div className="relative">
-                  <FolderOpen className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                  <FolderOpen className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                   <Input
                     placeholder="/data/documentos/informe.pdf"
                     value={localPath}
                     onChange={(e) => { setLocalPath(e.target.value); resetIngest(); }}
-                    className="pl-9 font-mono text-sm bg-slate-900/50 border-slate-700 focus:border-violet-500 text-slate-200 placeholder:text-slate-600"
+                    className="pl-9 font-mono text-sm bg-muted/50 border-input focus:border-violet-500 text-foreground placeholder:text-muted-foreground/60"
                     disabled={isIngesting}
                   />
                 </div>
@@ -872,8 +872,8 @@ export default function BrainIngestPage() {
 
           {/* Info pipeline */}
           {!activeJobId && !ingestDone && (
-            <div className="rounded-xl border border-slate-700/40 bg-slate-800/20 p-4">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
+            <div className="rounded-xl border border-border/60 bg-muted/20 p-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
                 ¿Cómo funciona el pipeline?
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -881,8 +881,8 @@ export default function BrainIngestPage() {
                   <div key={step.title} className="flex gap-3 items-start">
                     <span className="text-xl">{step.icon}</span>
                     <div>
-                      <p className="text-sm font-medium text-slate-300">{step.title}</p>
-                      <p className="text-xs text-slate-500 mt-0.5">{step.desc}</p>
+                      <p className="text-sm font-medium text-foreground/80">{step.title}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{step.desc}</p>
                     </div>
                   </div>
                 ))}
@@ -893,12 +893,12 @@ export default function BrainIngestPage() {
 
         {/* ── TAB: Monitorización ────────────────────────────────────────────── */}
         <TabsContent value="monitor" className="mt-6">
-          <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-5">
+          <div className="rounded-xl border border-border bg-card p-5">
             <div className="flex items-center gap-2 mb-4">
               <Database className="h-4 w-4 text-violet-400" />
-              <h2 className="text-sm font-semibold text-slate-200">Documentos en el Brain</h2>
+              <h2 className="text-sm font-semibold text-foreground">Documentos en el Brain</h2>
               {passportCount > 0 && (
-                <span className="text-xs text-slate-500">
+                <span className="text-xs text-muted-foreground">
                   {passportCount} documento{passportCount !== 1 ? "s" : ""}
                 </span>
               )}

@@ -79,15 +79,15 @@ function HealthIndicator({ name, status }: HealthIndicatorProps) {
     ok:       { icon: <CheckCircle className="h-4 w-4" />,  label: "Operativo",  cls: "text-emerald-400" },
     degraded: { icon: <AlertCircle className="h-4 w-4" />, label: "Degradado",  cls: "text-amber-400" },
     error:    { icon: <XCircle     className="h-4 w-4" />, label: "Error",      cls: "text-red-400" },
-    unknown:  { icon: <AlertCircle className="h-4 w-4" />, label: "Desconocido", cls: "text-slate-500" },
+    unknown:  { icon: <AlertCircle className="h-4 w-4" />, label: "Desconocido", cls: "text-muted-foreground" },
   };
   const cfg = statusConfig[status];
 
   return (
-    <div className="flex items-center justify-between rounded-lg border border-slate-700/60 bg-slate-800 px-4 py-3">
+    <div className="flex items-center justify-between rounded-lg border border-border bg-card px-4 py-3">
       <div className="flex items-center gap-3">
         <span className={cfg.cls}>{cfg.icon}</span>
-        <span className="text-sm text-slate-200">{name}</span>
+        <span className="text-sm text-foreground">{name}</span>
       </div>
       <span className={cn("text-xs font-medium", cfg.cls)}>{cfg.label}</span>
     </div>
@@ -110,7 +110,7 @@ function NumberField({ label, value, min, max, step = 1, onChange, hint }: Numbe
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <Label className="text-sm text-slate-300">{label}</Label>
+        <Label className="text-sm text-foreground/80">{label}</Label>
         <span className="text-sm font-mono text-violet-300">{value}</span>
       </div>
       <Slider
@@ -119,9 +119,9 @@ function NumberField({ label, value, min, max, step = 1, onChange, hint }: Numbe
         onValueChange={([v]) => onChange(v)}
         className="w-full"
       />
-      <div className="flex justify-between text-xs text-slate-600">
+      <div className="flex justify-between text-xs text-muted-foreground/70">
         <span>{min}</span>
-        {hint && <span className="text-slate-500">{hint}</span>}
+        {hint && <span className="text-muted-foreground">{hint}</span>}
         <span>{max}</span>
       </div>
     </div>
@@ -210,18 +210,18 @@ export default function BrainAdminPage() {
   const cragProfile = BRAIN_CRAG_PROFILES[cragProvider as keyof typeof BRAIN_CRAG_PROFILES];
 
   return (
-    <div className="dark flex flex-col gap-6 p-6 max-w-3xl mx-auto w-full">
+    <div className="flex flex-col gap-6 p-6 max-w-3xl mx-auto w-full">
       {/* Breadcrumb */}
       <BrainBreadcrumb spaceId={spaceId} current="Admin Brain" />
 
       {/* Cabecera */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+          <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
             <Monitor className="h-5 w-5 text-violet-400" />
             Admin Brain
           </h1>
-          <p className="text-sm text-slate-400 mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             Configuración en caliente del pipeline · sin restart de contenedor
           </p>
         </div>
@@ -261,15 +261,15 @@ export default function BrainAdminPage() {
 
           {/* ── TAB: Chunking ──────────────────────────────────────────── */}
           <TabsContent value="chunking" className="mt-6 space-y-5">
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5 space-y-5">
+            <div className="rounded-xl border border-border bg-card p-5 space-y-5">
               {/* Estrategia */}
               <div className="space-y-2">
-                <Label className="text-sm text-slate-300">Estrategia de chunking</Label>
+                <Label className="text-sm text-foreground/80">Estrategia de chunking</Label>
                 <Select
                   value={draft.BRAIN_CHUNK_STRATEGY ?? "paragraph"}
                   onValueChange={(v) => set("BRAIN_CHUNK_STRATEGY", v)}
                 >
-                  <SelectTrigger className="bg-slate-900/50 border-slate-700">
+                  <SelectTrigger className="bg-muted/50 border-input">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -299,7 +299,7 @@ export default function BrainAdminPage() {
 
           {/* ── TAB: Retrieval ──────────────────────────────────────────── */}
           <TabsContent value="retrieval" className="mt-6 space-y-5">
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5 space-y-5">
+            <div className="rounded-xl border border-border bg-card p-5 space-y-5">
               <NumberField
                 label="Score mínimo L1 (pasaportes)"
                 value={draft.ROUTER_L1_HIGH_SCORE ?? 0.72}
@@ -324,8 +324,8 @@ export default function BrainAdminPage() {
 
               <div className="flex items-center justify-between py-1">
                 <div>
-                  <Label className="text-sm text-slate-300">Reranking semántico</Label>
-                  <p className="text-xs text-slate-500 mt-0.5">Reordena chunks por relevancia antes de sintetizar</p>
+                  <Label className="text-sm text-foreground/80">Reranking semántico</Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">Reordena chunks por relevancia antes de sintetizar</p>
                 </div>
                 <Switch
                   checked={draft.BRAIN_RERANKING_ENABLED ?? true}
@@ -333,16 +333,16 @@ export default function BrainAdminPage() {
                 />
               </div>
 
-              <Separator className="border-slate-700/60" />
+              <Separator className="border-border" />
 
               <div className="space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Ingesta Brain (F5 unificada)
                 </p>
                 <div className="flex items-center justify-between py-1">
                   <div>
-                    <Label className="text-sm text-slate-300">Pipeline Brain activo</Label>
-                    <p className="text-xs text-slate-500 mt-0.5">Genera pasaportes y vectoriza en Qdrant</p>
+                    <Label className="text-sm text-foreground/80">Pipeline Brain activo</Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">Genera pasaportes y vectoriza en Qdrant</p>
                   </div>
                   <Switch
                     checked={draft.BRAIN_INGESTION_ENABLED ?? true}
@@ -351,8 +351,8 @@ export default function BrainAdminPage() {
                 </div>
                 <div className="flex items-center justify-between py-1">
                   <div>
-                    <Label className="text-sm text-slate-300">Síntesis de pasaportes</Label>
-                    <p className="text-xs text-slate-500 mt-0.5">On/off sin afectar al chunking/vectorización</p>
+                    <Label className="text-sm text-foreground/80">Síntesis de pasaportes</Label>
+                    <p className="text-xs text-muted-foreground mt-0.5">On/off sin afectar al chunking/vectorización</p>
                   </div>
                   <Switch
                     checked={draft.BRAIN_SYNTHESIS_ENABLED ?? true}
@@ -373,18 +373,18 @@ export default function BrainAdminPage() {
           {/* ── TAB: LLM ──────────────────────────────────────────────── */}
           <TabsContent value="llm" className="mt-6 space-y-5">
             {/* Modelo de síntesis */}
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5 space-y-4">
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+            <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Modelo de síntesis
               </p>
 
               <div className="space-y-2">
-                <Label className="text-sm text-slate-300">Provider</Label>
+                <Label className="text-sm text-foreground/80">Provider</Label>
                 <Select
                   value={draft.BRAIN_LLM_PROVIDER ?? "ollama"}
                   onValueChange={(v) => set("BRAIN_LLM_PROVIDER", v)}
                 >
-                  <SelectTrigger className="bg-slate-900/50 border-slate-700">
+                  <SelectTrigger className="bg-muted/50 border-input">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -397,13 +397,13 @@ export default function BrainAdminPage() {
 
               {/* Modelo síntesis */}
               <div className="space-y-2">
-                <Label className="text-sm text-slate-300">Modelo</Label>
+                <Label className="text-sm text-foreground/80">Modelo</Label>
                 {ollamaModels.length > 0 ? (
                   <Select
                     value={draft.BRAIN_LLM_MODEL ?? ""}
                     onValueChange={(v) => set("BRAIN_LLM_MODEL", v)}
                   >
-                    <SelectTrigger className="bg-slate-900/50 border-slate-700">
+                    <SelectTrigger className="bg-muted/50 border-input">
                       <SelectValue placeholder="Seleccionar modelo…" />
                     </SelectTrigger>
                     <SelectContent>
@@ -417,7 +417,7 @@ export default function BrainAdminPage() {
                     value={draft.BRAIN_LLM_MODEL ?? ""}
                     onChange={(e) => set("BRAIN_LLM_MODEL", e.target.value)}
                     placeholder="claude-3-5-haiku-20241022"
-                    className="bg-slate-900/50 border-slate-700 font-mono text-sm"
+                    className="bg-muted/50 border-input font-mono text-sm"
                   />
                 )}
               </div>
@@ -438,26 +438,26 @@ export default function BrainAdminPage() {
 
               {/* Modelo embedding */}
               <div className="space-y-2">
-                <Label className="text-sm text-slate-300">Modelo de embedding</Label>
+                <Label className="text-sm text-foreground/80">Modelo de embedding</Label>
                 <Input
                   value={draft.BRAIN_EMBEDDING_MODEL ?? "nomic-embed-text"}
                   onChange={(e) => set("BRAIN_EMBEDDING_MODEL", e.target.value)}
-                  className="bg-slate-900/50 border-slate-700 font-mono text-sm"
+                  className="bg-muted/50 border-input font-mono text-sm"
                 />
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-muted-foreground">
                   Cambiar el modelo requiere re-vectorización de todos los chunks
                 </p>
               </div>
             </div>
 
             {/* Bloque CRAG Evaluador */}
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5 space-y-4">
+            <div className="rounded-xl border border-border bg-card p-5 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Agente Evaluador CRAG
                   </p>
-                  <p className="text-xs text-slate-500 mt-0.5">
+                  <p className="text-xs text-muted-foreground mt-0.5">
                     Evalúa la relevancia de cada chunk antes de sintetizar (F4.6)
                   </p>
                 </div>
@@ -469,13 +469,13 @@ export default function BrainAdminPage() {
 
               <div className={cn("space-y-4 transition-opacity", !cragEnabled && "opacity-40 pointer-events-none")}>
                 <div className="space-y-2">
-                  <Label className="text-sm text-slate-300">Provider evaluador</Label>
+                  <Label className="text-sm text-foreground/80">Provider evaluador</Label>
                   <Select
                     value={draft.CRAG_EVALUATOR_PROVIDER ?? ""}
                     onValueChange={(v) => set("CRAG_EVALUATOR_PROVIDER", v)}
                     disabled={!cragEnabled}
                   >
-                    <SelectTrigger className="bg-slate-900/50 border-slate-700">
+                    <SelectTrigger className="bg-muted/50 border-input">
                       <SelectValue placeholder="Mismo que síntesis" />
                     </SelectTrigger>
                     <SelectContent>
@@ -488,14 +488,14 @@ export default function BrainAdminPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-sm text-slate-300">Modelo evaluador</Label>
+                  <Label className="text-sm text-foreground/80">Modelo evaluador</Label>
                   {ollamaModels.length > 0 ? (
                     <Select
                       value={draft.CRAG_EVALUATOR_MODEL ?? ""}
                       onValueChange={(v) => set("CRAG_EVALUATOR_MODEL", v)}
                       disabled={!cragEnabled}
                     >
-                      <SelectTrigger className="bg-slate-900/50 border-slate-700">
+                      <SelectTrigger className="bg-muted/50 border-input">
                         <SelectValue placeholder="Seleccionar modelo…" />
                       </SelectTrigger>
                       <SelectContent>
@@ -510,7 +510,7 @@ export default function BrainAdminPage() {
                       onChange={(e) => set("CRAG_EVALUATOR_MODEL", e.target.value)}
                       disabled={!cragEnabled}
                       placeholder="qwen2.5-coder:3b"
-                      className="bg-slate-900/50 border-slate-700 font-mono text-sm"
+                      className="bg-muted/50 border-input font-mono text-sm"
                     />
                   )}
                 </div>
@@ -529,28 +529,28 @@ export default function BrainAdminPage() {
                     className="w-full text-left"
                     onClick={() => setShowCragProfile((p) => !p)}
                   >
-                    <div className="flex items-center justify-between rounded-lg border border-slate-700/40 bg-slate-900/40 px-3 py-2">
-                      <span className="text-xs text-slate-400">Perfil autodetectado: {cragProvider}</span>
+                    <div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/40 px-3 py-2">
+                      <span className="text-xs text-muted-foreground">Perfil autodetectado: {cragProvider}</span>
                       {showCragProfile ? (
-                        <ChevronUp className="h-3.5 w-3.5 text-slate-500" />
+                        <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" />
                       ) : (
-                        <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+                        <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                       )}
                     </div>
                   </button>
                 )}
                 {showCragProfile && cragProfile && (
-                  <div className="rounded-lg border border-slate-700/40 bg-slate-900/30 px-4 py-3 space-y-2">
-                    <p className="text-xs text-slate-400 font-mono">{cragProfile.desc}</p>
+                  <div className="rounded-lg border border-border/60 bg-muted/30 px-4 py-3 space-y-2">
+                    <p className="text-xs text-muted-foreground font-mono">{cragProfile.desc}</p>
                     <div className="flex gap-4">
-                      <span className="text-xs text-slate-500">
-                        Max chunks: <span className="text-slate-300">{cragProfile.maxChunks}</span>
+                      <span className="text-xs text-muted-foreground">
+                        Max chunks: <span className="text-foreground/80">{cragProfile.maxChunks}</span>
                       </span>
-                      <span className="text-xs text-slate-500">
-                        Batch: <span className="text-slate-300">{cragProfile.batch}</span>
+                      <span className="text-xs text-muted-foreground">
+                        Batch: <span className="text-foreground/80">{cragProfile.batch}</span>
                       </span>
                     </div>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-muted-foreground">
                       Latencia estimada: <span className="text-amber-400">{BRAIN_CRAG_LATENCY[cragProvider as keyof typeof BRAIN_CRAG_LATENCY]}</span>
                     </p>
                   </div>
@@ -558,13 +558,13 @@ export default function BrainAdminPage() {
 
                 {/* Rewriter */}
                 <div className="space-y-2">
-                  <Label className="text-sm text-slate-300">Modelo rewriter (siempre activo)</Label>
+                  <Label className="text-sm text-foreground/80">Modelo rewriter (siempre activo)</Label>
                   <Input
                     value={draft.CRAG_REWRITER_MODEL ?? "qwen2.5-coder:3b"}
                     onChange={(e) => set("CRAG_REWRITER_MODEL", e.target.value)}
-                    className="bg-slate-900/50 border-slate-700 font-mono text-sm"
+                    className="bg-muted/50 border-input font-mono text-sm"
                   />
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-muted-foreground">
                     Convierte la pregunta a keywords antes de buscar en SearXNG (L2.c)
                   </p>
                 </div>
@@ -594,11 +594,11 @@ export default function BrainAdminPage() {
 
           {/* ── TAB: Colecciones ──────────────────────────────────────── */}
           <TabsContent value="collections" className="mt-6 space-y-4">
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5">
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-4">
+            <div className="rounded-xl border border-border bg-card p-5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-4">
                 Estado de colecciones Qdrant
               </p>
-              <p className="text-sm text-slate-400">
+              <p className="text-sm text-muted-foreground">
                 Las colecciones Qdrant (<span className="font-mono text-violet-300">brain</span>,{" "}
                 <span className="font-mono text-blue-300">knowledge</span>,{" "}
                 <span className="font-mono text-emerald-300">code</span>) se gestionan desde
@@ -622,9 +622,9 @@ export default function BrainAdminPage() {
 
           {/* ── TAB: Sistema ──────────────────────────────────────────── */}
           <TabsContent value="system" className="mt-6 space-y-4">
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5 space-y-4">
+            <div className="rounded-xl border border-border bg-card p-5 space-y-4">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Health check de servicios
                 </p>
                 <Button
@@ -633,7 +633,7 @@ export default function BrainAdminPage() {
                     log.debug("Refrescando health check");
                     refetchHealth();
                   }}
-                  className="gap-1.5 text-xs text-slate-400"
+                  className="gap-1.5 text-xs text-muted-foreground"
                 >
                   <RefreshCw className="h-3 w-3" />
                   Actualizar
@@ -651,11 +651,11 @@ export default function BrainAdminPage() {
             </div>
 
             {/* Sección F5: Fallback SurfSense */}
-            <div className="rounded-xl border border-slate-700/60 bg-slate-800 p-5 space-y-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+            <div className="rounded-xl border border-border bg-card p-5 space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Fallback SurfSense (F5 unificada)
               </p>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-muted-foreground">
                 Si el pipeline Brain falla (Ollama no disponible, Qdrant error), el sistema
                 cae automáticamente al pipeline SurfSense original (MiniLM + búsqueda directa).
                 Este comportamiento es automático y no configurable.

@@ -1336,6 +1336,7 @@ async def _run_resynthesize(
             full_text=raw_text,
             model=model,
             provider=provider,
+            search_space_id=str(search_space_id),
         )
         new_md = synth_result.get("md_content", "")
 
@@ -1629,6 +1630,7 @@ async def _run_ingest_pipeline(
                 blocks=blocks,
                 model=synth_model,
                 provider=synth_provider,
+                search_space_id=str(search_space_id),
             )
             return result.get("md_content", "") if isinstance(result, dict) else str(result)
 
@@ -1790,6 +1792,7 @@ async def _run_ingest_file_pipeline(
                 model=synth_model,
                 provider=synth_provider,
                 ingest_metadata={"ingest_origin": "file_upload", "ingest_path": filename},
+                search_space_id=str(search_space_id),
             )
             return result.get("md_content", "") if isinstance(result, dict) else str(result)
 
@@ -1946,6 +1949,7 @@ async def _run_ingest_path_pipeline(
                 model=synth_model,
                 provider=synth_provider,
                 ingest_metadata={"ingest_origin": "local", "ingest_path": local_path},
+                search_space_id=str(search_space_id),
             )
             return result.get("md_content", "") if isinstance(result, dict) else str(result)
 
@@ -2710,6 +2714,7 @@ async def _run_ingest_connector_pipeline(
                     "item_id": item_id,
                     **adapted.metadata,
                 },
+                search_space_id=str(search_space_id),
             )
             return result.get("md_content", "") if isinstance(result, dict) else str(result)
 

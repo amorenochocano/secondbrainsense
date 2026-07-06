@@ -74,7 +74,7 @@ const vocabKeys = {
 /** Badge que distingue registros globales vs del space */
 function ScopeBadge({ scope }: { scope: "global" | "space" }) {
   return scope === "global" ? (
-    <span className="inline-flex items-center gap-0.5 text-[10px] text-slate-400 bg-slate-700/40 rounded px-1.5 py-0.5">
+    <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground bg-muted rounded px-1.5 py-0.5">
       <Globe className="h-2.5 w-2.5" /> Global
     </span>
   ) : (
@@ -91,12 +91,12 @@ function ChipList({ chips, maxVisible = 4 }: { chips: string[]; maxVisible?: num
   return (
     <div className="flex flex-wrap gap-1">
       {visible.map((c) => (
-        <span key={c} className="rounded-full bg-slate-700/50 px-2 py-0.5 text-xs text-slate-300">
+        <span key={c} className="rounded-full bg-muted px-2 py-0.5 text-xs text-foreground/80">
           {c}
         </span>
       ))}
       {extra > 0 && (
-        <span className="rounded-full bg-slate-700/30 px-2 py-0.5 text-xs text-slate-500">
+        <span className="rounded-full bg-muted/60 px-2 py-0.5 text-xs text-muted-foreground">
           +{extra}
         </span>
       )}
@@ -163,16 +163,16 @@ function DomainsTab({ spaceId }: { spaceId: number }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <span className="text-xs text-slate-400">{domains.length} dominios</span>
+        <span className="text-xs text-muted-foreground">{domains.length} dominios</span>
         <Button size="sm" onClick={() => { setFormData({}); setIsNewOpen(true); }} className="gap-1.5">
           <Plus className="h-3.5 w-3.5" /> Añadir dominio
         </Button>
       </div>
 
-      <div className="rounded-xl border border-slate-700/60 overflow-hidden">
+      <div className="rounded-xl border border-border overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-slate-800/50">
-            <tr className="text-xs text-slate-500 uppercase tracking-wider">
+          <thead className="bg-muted/60">
+            <tr className="text-xs text-muted-foreground uppercase tracking-wider">
               <th className="text-left p-3">Clave / Label</th>
               <th className="text-left p-3 hidden md:table-cell">Signal tags</th>
               <th className="text-left p-3 hidden lg:table-cell">Keywords</th>
@@ -181,12 +181,12 @@ function DomainsTab({ spaceId }: { spaceId: number }) {
               <th className="p-3" />
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-700/30">
+          <tbody className="divide-y divide-border/50">
             {domains.map((d) => (
-              <tr key={d.id} className={cn("hover:bg-slate-800/20", !d.is_active && "opacity-50")}>
+              <tr key={d.id} className={cn("hover:bg-muted/40", !d.is_active && "opacity-50")}>
                 <td className="p-3">
                   <p className="font-mono text-xs text-violet-300">{d.domain_key}</p>
-                  <p className="text-sm text-slate-200">{d.label}</p>
+                  <p className="text-sm text-foreground">{d.label}</p>
                 </td>
                 <td className="p-3 hidden md:table-cell">
                   <ChipList chips={d.signal_tags} />
@@ -209,14 +209,14 @@ function DomainsTab({ spaceId }: { spaceId: number }) {
                     <button
                       type="button"
                       onClick={() => openEdit(d)}
-                      className="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-200"
+                      className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
                     {d.scope === "space" && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <button type="button" className="p-1 rounded hover:bg-red-900/30 text-slate-400 hover:text-red-400">
+                          <button type="button" className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive">
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </AlertDialogTrigger>
@@ -336,24 +336,24 @@ function VocabularyTab({ spaceId }: { spaceId: number }) {
       {/* Buscador inline + consulta de alias */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             value={searchQ}
             onChange={(e) => setSearchQ(e.target.value)}
             placeholder="Buscar por canonical o alias…"
-            className="pl-9 bg-slate-900/50 border-slate-700"
+            className="pl-9 bg-muted/50 border-input"
           />
         </div>
 
         {/* Lookup de alias */}
-        <div className="rounded-xl border border-slate-700/60 bg-slate-800/30 p-3">
-          <p className="text-xs text-slate-500 mb-2">Lookup: ¿de qué canónica es alias?</p>
+        <div className="rounded-xl border border-border bg-card p-3">
+          <p className="text-xs text-muted-foreground mb-2">Lookup: ¿de qué canónica es alias?</p>
           <div className="flex gap-2">
             <Input
               value={lookupTag}
               onChange={(e) => setLookupTag(e.target.value)}
               placeholder="powerbi…"
-              className="bg-slate-900/50 border-slate-700 text-sm"
+              className="bg-muted/50 border-input text-sm"
               onKeyDown={(e) => e.key === "Enter" && lookupTag && doLookup()}
             />
             <Button size="sm" variant="outline" onClick={() => doLookup()} disabled={!lookupTag || lookupFetching}>
@@ -367,7 +367,7 @@ function VocabularyTab({ spaceId }: { spaceId: number }) {
                   <CheckCircle className="h-3 w-3" />
                   Alias de: <span className="font-mono font-semibold">{lookupResult.canonical_tag}</span>
                   {lookupResult.aliases.length > 0 && (
-                    <span className="text-slate-500 ml-1">({lookupResult.aliases.join(", ")})</span>
+                    <span className="text-muted-foreground ml-1">({lookupResult.aliases.join(", ")})</span>
                   )}
                 </p>
               ) : (
@@ -382,7 +382,7 @@ function VocabularyTab({ spaceId }: { spaceId: number }) {
       </div>
 
       <div className="flex items-center justify-between">
-        <span className="text-xs text-slate-400">{entries.length} entradas</span>
+        <span className="text-xs text-muted-foreground">{entries.length} entradas</span>
         <Button size="sm" onClick={() => setIsNewOpen(true)} className="gap-1.5">
           <Plus className="h-3.5 w-3.5" /> Añadir entrada
         </Button>
@@ -391,19 +391,19 @@ function VocabularyTab({ spaceId }: { spaceId: number }) {
       {isLoading ? (
         <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-violet-400" /></div>
       ) : (
-        <div className="rounded-xl border border-slate-700/60 overflow-hidden">
+        <div className="rounded-xl border border-border overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-slate-800/50">
-              <tr className="text-xs text-slate-500 uppercase tracking-wider">
+            <thead className="bg-muted/60">
+              <tr className="text-xs text-muted-foreground uppercase tracking-wider">
                 <th className="text-left p-3">Canónica</th>
                 <th className="text-left p-3">Aliases</th>
                 <th className="text-left p-3">Scope</th>
                 <th className="p-3" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-700/30">
+            <tbody className="divide-y divide-border/50">
               {entries.map((entry) => (
-                <tr key={entry.id} className={cn("hover:bg-slate-800/20", !entry.is_active && "opacity-50")}>
+                <tr key={entry.id} className={cn("hover:bg-muted/40", !entry.is_active && "opacity-50")}>
                   <td className="p-3 font-mono text-xs text-violet-300">{entry.canonical_tag}</td>
                   <td className="p-3"><ChipList chips={entry.aliases} maxVisible={5} /></td>
                   <td className="p-3"><ScopeBadge scope={entry.scope} /></td>
@@ -411,7 +411,7 @@ function VocabularyTab({ spaceId }: { spaceId: number }) {
                     {entry.scope === "space" && (
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <button type="button" className="p-1 rounded hover:bg-red-900/30 text-slate-400 hover:text-red-400">
+                          <button type="button" className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive">
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </AlertDialogTrigger>
@@ -529,28 +529,28 @@ function DocTypesTab({ spaceId }: { spaceId: number }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <span className="text-xs text-slate-400">{docTypes.length} tipos de documento</span>
+        <span className="text-xs text-muted-foreground">{docTypes.length} tipos de documento</span>
         <Button size="sm" onClick={() => { setFormData({}); setIsNewOpen(true); }} className="gap-1.5">
           <Plus className="h-3.5 w-3.5" /> Añadir tipo
         </Button>
       </div>
 
-      <div className="rounded-xl border border-slate-700/60 overflow-hidden">
+      <div className="rounded-xl border border-border overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-slate-800/50">
-            <tr className="text-xs text-slate-500 uppercase tracking-wider">
+          <thead className="bg-muted/60">
+            <tr className="text-xs text-muted-foreground uppercase tracking-wider">
               <th className="text-left p-3">Clave / Label</th>
               <th className="text-left p-3 hidden md:table-cell">Formatos</th>
               <th className="text-left p-3">Scope</th>
               <th className="p-3" />
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-700/30">
+          <tbody className="divide-y divide-border/50">
             {docTypes.map((dt) => (
-              <tr key={dt.id} className={cn("hover:bg-slate-800/20", !dt.is_active && "opacity-50")}>
+              <tr key={dt.id} className={cn("hover:bg-muted/40", !dt.is_active && "opacity-50")}>
                 <td className="p-3">
                   <p className="font-mono text-xs text-violet-300">{dt.type_key}</p>
-                  <p className="text-sm text-slate-200">{dt.label}</p>
+                  <p className="text-sm text-foreground">{dt.label}</p>
                 </td>
                 <td className="p-3 hidden md:table-cell"><ChipList chips={dt.signal_formats} /></td>
                 <td className="p-3"><ScopeBadge scope={dt.scope} /></td>
@@ -558,7 +558,7 @@ function DocTypesTab({ spaceId }: { spaceId: number }) {
                   {dt.scope === "space" && (
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
-                        <button type="button" className="p-1 rounded hover:bg-red-900/30 text-slate-400 hover:text-red-400">
+                        <button type="button" className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive">
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </AlertDialogTrigger>
@@ -658,7 +658,7 @@ function EntityHintsTab({ spaceId }: { spaceId: number }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <span className="text-xs text-slate-400">{hints.length} entity hints</span>
+        <span className="text-xs text-muted-foreground">{hints.length} entity hints</span>
         <Button size="sm" onClick={() => { setFormData({}); setIsNewOpen(true); }} className="gap-1.5">
           <Plus className="h-3.5 w-3.5" /> Añadir hint
         </Button>
@@ -666,45 +666,45 @@ function EntityHintsTab({ spaceId }: { spaceId: number }) {
 
       <div className="space-y-2">
         {hints.map((hint) => (
-          <div key={hint.id} className="rounded-lg border border-slate-700/60 bg-slate-800/20 overflow-hidden">
+          <div key={hint.id} className="rounded-lg border border-border bg-card overflow-hidden">
             <button
               type="button"
-              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-800/40 transition-colors text-left"
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-muted/60 transition-colors text-left"
               onClick={() => setExpandedId(expandedId === hint.id ? null : hint.id)}
             >
               {expandedId === hint.id ? (
-                <ChevronDown className="h-4 w-4 text-slate-400 shrink-0" />
+                <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" />
               ) : (
-                <ChevronRight className="h-4 w-4 text-slate-400 shrink-0" />
+                <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
               )}
               <span className="font-mono text-xs text-violet-300">{hint.hint_key}</span>
-              <span className="text-sm text-slate-200">{hint.label}</span>
-              <span className="text-xs text-slate-500 ml-auto">{hint.patterns.length} patterns</span>
+              <span className="text-sm text-foreground">{hint.label}</span>
+              <span className="text-xs text-muted-foreground ml-auto">{hint.patterns.length} patterns</span>
             </button>
 
             {expandedId === hint.id && (
-              <div className="border-t border-slate-700/40 px-4 py-3 space-y-3">
+              <div className="border-t border-border/60 px-4 py-3 space-y-3">
                 <div className="grid grid-cols-2 gap-3 text-xs">
                   <div>
-                    <span className="text-slate-500">Dominio: </span>
-                    <span className="text-slate-300">{hint.domain_key ?? "Todos"}</span>
+                    <span className="text-muted-foreground">Dominio: </span>
+                    <span className="text-foreground/80">{hint.domain_key ?? "Todos"}</span>
                   </div>
                   <div>
-                    <span className="text-slate-500">Tipo: </span>
-                    <span className="text-slate-300">{hint.doc_type_key ?? "Todos"}</span>
+                    <span className="text-muted-foreground">Tipo: </span>
+                    <span className="text-foreground/80">{hint.doc_type_key ?? "Todos"}</span>
                   </div>
                 </div>
                 <div>
-                  <p className="text-xs text-slate-500 mb-1">Patterns</p>
+                  <p className="text-xs text-muted-foreground mb-1">Patterns</p>
                   <div className="flex flex-wrap gap-1">
                     {hint.patterns.map((p) => (
-                      <span key={p} className="font-mono text-xs bg-slate-700/50 rounded px-2 py-0.5 text-slate-300">{p}</span>
+                      <span key={p} className="font-mono text-xs bg-muted rounded px-2 py-0.5 text-foreground/80">{p}</span>
                     ))}
                   </div>
                 </div>
                 {hint.examples.length > 0 && (
                   <div>
-                    <p className="text-xs text-slate-500 mb-1">Ejemplos</p>
+                    <p className="text-xs text-muted-foreground mb-1">Ejemplos</p>
                     <ChipList chips={hint.examples} maxVisible={6} />
                   </div>
                 )}
@@ -785,10 +785,10 @@ export default function BrainVocabularyPage() {
 
       {/* Cabecera */}
       <div>
-        <h1 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+        <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
           📖 Maestros y Vocabulario
         </h1>
-        <p className="text-sm text-slate-400 mt-1">
+        <p className="text-sm text-muted-foreground mt-1">
           Gestión de dominios, tipos de documento, entity hints y vocabulario canónico.
           Los registros globales solo se pueden desactivar.
         </p>

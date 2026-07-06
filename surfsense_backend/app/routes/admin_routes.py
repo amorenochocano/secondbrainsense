@@ -7,6 +7,9 @@ Permite a los administradores inspeccionar y gestionar las colecciones Qdrant
 sin necesidad de reiniciar el contenedor ni acceder directamente a Qdrant.
 
 Endpoints:
+  GET    /admin/config                                — Configuración activa del pipeline (solo lectura)
+  POST   /admin/config                                — No permitido (config vía env vars)
+  GET    /admin/ollama-models                         — Modelos Ollama disponibles
   GET    /admin/qdrant/collections                    — Estado de las tres colecciones
   POST   /admin/qdrant/collection/{name}/recreate     — Recrear una colección (destructivo)
   DELETE /admin/qdrant/document/{source}              — Borrar vectores de un documento
@@ -19,11 +22,13 @@ Seguridad:
 Decisión de diseño:
   QdrantManager.get_instance() devuelve el singleton inicializado en el lifespan.
   No se crea un cliente Qdrant nuevo por petición — se reutiliza la conexión existente.
+  La configuración del pipeline es inmutable en caliente — solo env vars, sin persistencia en BD.
 """
 import logging
 import os
+from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 
 from app.brain.collections import ALL_COLLECTIONS, BRAIN, CODE, COLLECTION_CONFIG, KNOWLEDGE
 from app.brain.qdrant_manager import QdrantManager
@@ -35,6 +40,87 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+
+
+def _bool_env(key: str, default: bool) -> bool:
+    val = os.getenv(key)
+    if val is None:
+        return default
+    return val.strip().upper() in ("1", "TRUE", "YES")
+
+
+def _float_env(key: str, default: Optional[float]) -> Optional[float]:
+    val = os.getenv(key)
+    if val is None:
+        return default
+    try:
+        return float(val)
+    except ValueError:
+        return default
+
+
+def _int_env(key: str, default: Optional[int]) -> Optional[int]:
+    val = os.getenv(key)
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except ValueError:
+        return default
+
+
+@router.get("/config", summary="Configuración activa del pipeline Brain")
+async def get_admin_config(
+    current_user: User = Depends(current_active_user),
+) -> dict[str, Any]:
+    """
+    Devuelve un snapshot de la configuración activa del pipeline Brain
+    leída desde variables de entorno.
+
+    Solo lectura — para cambiar la configuración editar el .env y reiniciar.
+    """
+    return {
+        # Chunking
+        "BRAIN_CHUNK_STRATEGY":    os.getenv("BRAIN_CHUNK_STRATEGY", "paragraph"),
+        "BRAIN_CHUNK_SIZE":        _int_env("BRAIN_CHUNK_SIZE", 512),
+        "BRAIN_CHUNK_OVERLAP":     _int_env("BRAIN_CHUNK_OVERLAP", 50),
+        # Retrieval
+        "ROUTER_L1_HIGH_SCORE":    _float_env("ROUTER_L1_HIGH_SCORE", 0.75),
+        "ROUTER_L1_MIN_SCORE":     _float_env("ROUTER_L1_MIN_SCORE", 0.50),
+        "BRAIN_TOP_K":             _int_env("BRAIN_TOP_K", 5),
+        "BRAIN_RERANKING_ENABLED": _bool_env("BRAIN_RERANKING_ENABLED", False),
+        # LLM síntesis
+        "BRAIN_LLM_PROVIDER":      os.getenv("BRAIN_LLM_PROVIDER", "ollama"),
+        "BRAIN_LLM_MODEL":         os.getenv("BRAIN_LLM_MODEL", "deepseek-r1:14b"),
+        "BRAIN_LLM_TEMPERATURE":   _float_env("BRAIN_LLM_TEMPERATURE", 0.1),
+        "BRAIN_LLM_MAX_TOKENS":    _int_env("BRAIN_LLM_MAX_TOKENS", 4096),
+        # Ingesta
+        "BRAIN_INGESTION_ENABLED": _bool_env("BRAIN_INGESTION_ENABLED", True),
+        "BRAIN_SYNTHESIS_ENABLED": _bool_env("BRAIN_SYNTHESIS_ENABLED", True),
+        "BRAIN_EMBEDDING_MODEL":   os.getenv("BRAIN_EMBEDDING_MODEL", "nomic-embed-text"),
+        "BRAIN_QUALITY_THRESHOLD": _float_env("BRAIN_QUALITY_THRESHOLD", 0.3),
+        # CRAG
+        "CRAG_EVALUATOR_ENABLED":  _bool_env("CRAG_EVALUATOR_ENABLED", False),
+        "CRAG_EVALUATOR_PROVIDER": os.getenv("CRAG_EVALUATOR_PROVIDER", "ollama"),
+        "CRAG_EVALUATOR_MODEL":    os.getenv("CRAG_EVALUATOR_MODEL", "deepseek-r1:14b"),
+        "CRAG_MAX_EVAL_CHUNKS":    _int_env("CRAG_MAX_EVAL_CHUNKS", 3),
+        "CRAG_EVAL_TIMEOUT":       _int_env("CRAG_EVAL_TIMEOUT", 15),
+        "CRAG_REWRITER_MODEL":     os.getenv("CRAG_REWRITER_MODEL", "deepseek-r1:14b"),
+    }
+
+
+@router.post("/config", summary="Actualizar configuración Brain (no soportado)")
+async def update_admin_config(
+    current_user: User = Depends(current_active_user),
+) -> Response:
+    """
+    La configuración del pipeline Brain se gestiona exclusivamente mediante
+    variables de entorno. Editar el .env y reiniciar el contenedor.
+    """
+    raise HTTPException(
+        status_code=405,
+        detail="La configuración Brain es inmutable en caliente. Editar .env y reiniciar.",
+    )
 
 
 @router.get("/ollama-models", summary="Lista de modelos Ollama disponibles")
