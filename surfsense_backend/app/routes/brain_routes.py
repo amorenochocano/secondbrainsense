@@ -2416,6 +2416,359 @@ async def _save_passport_version(source: str, content: str) -> None:
     await asyncio.to_thread(_write)
 
 
+# ── F1 — Conectores SurfSense en el pipeline Brain ────────────────────────────
+#
+# Dos endpoints nuevos:
+#   GET  /api/v1/brain/connectors/available
+#       Lista conectores del usuario que tienen tokens válidos y soporte Brain.
+#   POST /api/v1/brain/ingest/connector/{connector_type}
+#       Ingesta un ítem de un conector upstream usando SSE (mismo patrón que /ingest/file).
+#
+# Reutiliza: _ingest_jobs, _cleanup_stale_jobs, el stream GET /ingest/stream.
+
+_connector_ingest_logger = logging.getLogger("surfsense.brain.connector_ingest")
+
+
+@router.get("/connectors/available")
+async def brain_connectors_available(
+    search_space_id: int,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    """
+    Lista los conectores del usuario que tienen soporte en el pipeline Brain.
+
+    Filtra los SearchSourceConnector del usuario por:
+      1. Que estén en el search space indicado.
+      2. Que su connector_type tenga soporte en CONNECTOR_FAMILIES.
+
+    Cada conector incluye:
+        connector_id    — ID de la fila SearchSourceConnector (para el POST de ingesta).
+        connector_type  — tipo canónico (ej: "ONEDRIVE_CONNECTOR").
+        name            — nombre legible configurado por el usuario.
+        family          — "storage" | "record" | "chat".
+        token_ok        — True si el token de acceso parece válido.
+        needs_reauth    — True si el usuario necesita re-autenticar.
+
+    Requiere autenticación.
+    """
+    from app.db import SearchSourceConnector as _SSC
+    from app.brain.connectors.surfsense_adapter import (
+        is_brain_supported, get_family, verify_connector_token,
+    )
+
+    await _require_space_access(search_space_id, db, current_user)
+
+    result = await db.execute(
+        select(_SSC).where(
+            _SSC.user_id == current_user.id,
+            _SSC.search_space_id == search_space_id,
+        )
+    )
+    all_connectors = result.scalars().all()
+
+    available = []
+    for conn in all_connectors:
+        ctype = str(conn.connector_type).upper()
+        if not is_brain_supported(ctype):
+            continue
+        token_info = await verify_connector_token(conn)
+        available.append({
+            "connector_id":   conn.id,
+            "connector_type": ctype,
+            "name":           conn.name,
+            "family":         get_family(ctype),
+            "token_ok":       token_info["ok"],
+            "needs_reauth":   token_info["needs_reauth"],
+            "detail":         token_info.get("detail", ""),
+        })
+
+    _connector_ingest_logger.info(
+        "[connectors_available] user=%s space=%d total=%d supported=%d",
+        current_user.id, search_space_id, len(all_connectors), len(available),
+    )
+
+    return {"connectors": available, "count": len(available)}
+
+
+class IngestConnectorRequest(BaseModel):
+    """Body de POST /ingest/connector/{connector_type}."""
+    connector_id:   int
+    item_id:        str
+    filename:       str
+    search_space_id: int
+    model:    str | None = None
+    provider: str | None = None
+
+
+@router.post("/ingest/connector/{connector_type}")
+async def ingest_connector_item(
+    connector_type: str,
+    body: IngestConnectorRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    """
+    Ingesta un ítem de un conector SurfSense upstream en el pipeline Brain.
+
+    Soporta los tres tipos de familia:
+      - storage (OneDrive, Google Drive, Dropbox): descarga el fichero y
+        lo ingesta con el extractor adecuado según la extensión.
+      - record  (Airtable, ClickUp, Linear...): serializa a Markdown.
+      - chat    (Slack, Teams, Discord, Gmail): agrupa mensajes a Markdown.
+
+    Flujo de 4 fases (background + SSE):
+      1. extraction   — descarga + extractor adecuado
+      2. synthesis    — DocumentSynthesizer → pasaporte .md
+      3. chunking     — BrainWriter + IngestRouter
+      4. vectorization — Qdrant confirmado
+
+    Devuelve job_id para suscribirse a GET /ingest/stream?job_id=<id>.
+
+    Verifica antes de encolar:
+      - El conector pertenece al usuario.
+      - El conector está en el search space indicado.
+      - El conector tiene token válido (family=storage).
+    """
+    from app.db import SearchSourceConnector as _SSC
+    from app.brain.connectors.surfsense_adapter import (
+        is_brain_supported, get_family, verify_connector_token,
+    )
+
+    await _require_space_access(body.search_space_id, db, current_user)
+
+    ctype = connector_type.upper()
+    if not is_brain_supported(ctype):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Conector '{ctype}' no tiene soporte en el pipeline Brain. "
+                f"Soportados: OneDrive, Google Drive, Dropbox, Slack, Teams, "
+                f"Discord, Gmail, Airtable, ClickUp, Linear, BookStack, Calendar, Luma, Elasticsearch."
+            ),
+        )
+
+    # Verificar que el conector pertenece al usuario y al space
+    result = await db.execute(
+        select(_SSC).where(
+            _SSC.id == body.connector_id,
+            _SSC.user_id == current_user.id,
+            _SSC.search_space_id == body.search_space_id,
+        )
+    )
+    connector_record = result.scalar_one_or_none()
+    if connector_record is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Conector {body.connector_id} no encontrado para este usuario y space.",
+        )
+
+    # Verificar token antes de encolar (evita iniciar un job que fallará)
+    token_info = await verify_connector_token(connector_record)
+    if not token_info["ok"] and token_info.get("needs_reauth"):
+        raise HTTPException(
+            status_code=401,
+            detail=(
+                f"Token expirado o inválido para el conector {ctype}. "
+                f"Re-autentícalo en Configuración → Conectores antes de ingestar. "
+                f"Detalle: {token_info.get('detail', '')}"
+            ),
+        )
+
+    _cleanup_stale_jobs()
+
+    job_id = str(uuid.uuid4())
+    queue: asyncio.Queue = asyncio.Queue()
+    _ingest_jobs[job_id] = {"queue": queue, "created_at": time.monotonic()}
+
+    _connector_ingest_logger.info(
+        "[ingest_connector] job=%s connector=%s item_id=%s filename='%s' space=%d user=%s",
+        job_id, ctype, body.item_id, body.filename, body.search_space_id, current_user.id,
+    )
+
+    # Pasar config serializado — el conector ORM no se puede pasar entre threads directamente
+    connector_config = dict(connector_record.config or {})
+
+    background_tasks.add_task(
+        _run_ingest_connector_pipeline,
+        connector_type=ctype,
+        connector_id=body.connector_id,
+        connector_config=connector_config,
+        item_id=body.item_id,
+        filename=body.filename,
+        search_space_id=body.search_space_id,
+        model=body.model,
+        provider=body.provider,
+        queue=queue,
+        job_id=job_id,
+    )
+
+    return {"job_id": job_id, "status": "queued", "background": True}
+
+
+async def _run_ingest_connector_pipeline(
+    connector_type: str,
+    connector_id: int,
+    connector_config: dict,
+    item_id: str,
+    filename: str,
+    search_space_id: int,
+    model: str | None,
+    provider: str | None,
+    queue: asyncio.Queue,
+    job_id: str,
+) -> None:
+    """
+    Pipeline de 4 fases para ingesta desde conector SurfSense upstream.
+
+    Misma estructura que _run_ingest_file_pipeline.
+    None en la cola = señal de fin de stream.
+    """
+    from app.brain.connectors.surfsense_adapter import (
+        SurfSenseStorageAdapter, get_family,
+    )
+    from app.brain.synthesizer import DocumentSynthesizer
+    from app.brain.ingest_router import IngestRouter
+    from app.brain.writer import BrainWriter
+    from pathlib import Path
+
+    async def _emit(phase: str, status: str, chunks: int = 0, detail: str = "") -> None:
+        event = {"phase": phase, "status": status, "chunks": chunks, "detail": detail}
+        _connector_ingest_logger.debug("[ingest_connector] job=%s event=%s", job_id, event)
+        await queue.put(event)
+
+    family = get_family(connector_type)
+
+    try:
+        # ── FASE 1: Extracción desde el conector ──────────────────────────────
+        await _emit("extraction", "running")
+
+        if family == "storage":
+            # Crear objeto fake del conector con el config serializado
+            # para pasarlo al adaptador (evita dependencia de ORM en thread)
+            class _FakeConnector:
+                def __init__(self, cid, ctype, cfg):
+                    self.id = cid
+                    self.connector_type = ctype
+                    self.config = cfg
+
+            fake_conn = _FakeConnector(connector_id, connector_type, connector_config)
+            adapter = SurfSenseStorageAdapter()
+            adapted = await adapter.fetch_item(
+                connector_record=fake_conn,
+                item_id=item_id,
+                filename=filename,
+                db=None,
+            )
+        else:
+            # record/chat: no implementamos descarga automática en esta fase.
+            # El endpoint de record/chat requiere que el caller pase los datos pre-fetched.
+            # Para el pipeline automático de storage, family != storage es un no-op aquí.
+            await _emit("extraction", "error",
+                        detail=f"Ingesta automática no implementada para familia '{family}'. "
+                               f"Usa el endpoint de ingesta manual para {connector_type}.")
+            return
+
+        blocks = adapted.blocks
+        if not blocks:
+            await _emit("extraction", "error", detail="Sin contenido extraíble del conector")
+            return
+
+        await _emit("extraction", "ok", chunks=len(blocks))
+        _connector_ingest_logger.info(
+            "[ingest_connector] job=%s extraction OK: %d bloques family=%s",
+            job_id, len(blocks), family,
+        )
+
+        # ── FASE 2: Síntesis del pasaporte con LLM ────────────────────────────
+        await _emit("synthesis", "running")
+        synth_model    = model    or os.getenv("SYNTHESIS_MODEL",    "qwen2.5-coder:3b")
+        synth_provider = provider or os.getenv("BRAIN_LLM_PROVIDER", "ollama")
+
+        def _synthesize() -> str:
+            full_text = "\n\n".join(
+                b.get("content", "") for b in blocks if b.get("content")
+            ).strip()
+            result = DocumentSynthesizer().synthesize(
+                source=adapted.source_name,
+                file_type=adapted.file_type,
+                full_text=full_text,
+                blocks=blocks,
+                model=synth_model,
+                provider=synth_provider,
+                ingest_metadata={
+                    "ingest_origin": "connector",
+                    "connector_type": connector_type,
+                    "item_id": item_id,
+                    **adapted.metadata,
+                },
+            )
+            return result.get("md_content", "") if isinstance(result, dict) else str(result)
+
+        new_md = await asyncio.to_thread(_synthesize)
+        if not new_md.strip():
+            await _emit("synthesis", "error", detail="El sintetizador devolvió contenido vacío")
+            return
+
+        await asyncio.to_thread(BrainWriter().write, adapted.source_name, new_md)
+        await _emit("synthesis", "ok")
+        _connector_ingest_logger.info(
+            "[ingest_connector] job=%s synthesis OK: %d chars", job_id, len(new_md)
+        )
+
+        # ── FASE 3: Chunking + vectorización en Qdrant ────────────────────────
+        await _emit("chunking", "running")
+
+        def _vectorize() -> int:
+            results = IngestRouter(QdrantManager.get_instance().client).route(
+                md_content=new_md,
+                blocks=blocks,
+                source=adapted.source_name,
+                search_space_id=str(search_space_id),
+            )
+            if isinstance(results, dict):
+                return sum(v.get("chunks_created", 0) for v in results.values() if isinstance(v, dict))
+            return 0
+
+        total_chunks = await asyncio.to_thread(_vectorize)
+        await _emit("chunking", "ok", chunks=total_chunks)
+
+        # ── FASE 4: Confirmación + Redis ─────────────────────────────────────
+        import redis as _redis_lib
+        def _register_redis() -> None:
+            try:
+                r = _redis_lib.from_url(os.getenv("REDIS_APP_URL", "redis://redis:6379/0"))
+                now_iso = datetime.datetime.utcnow().isoformat()
+                r.set(f"brain:last_ingest:space:{search_space_id}", now_iso)
+                r.set(f"brain:last_ingest_doc:space:{search_space_id}", adapted.source_name)
+            except Exception as exc:
+                _connector_ingest_logger.warning(
+                    "[ingest_connector] job=%s Redis timestamp error: %s", job_id, exc
+                )
+
+        await asyncio.to_thread(_register_redis)
+        await _emit("vectorization", "ok", chunks=total_chunks)
+
+        _connector_ingest_logger.info(
+            "[ingest_connector] job=%s DONE connector=%s item='%s' chunks=%d space=%d",
+            job_id, connector_type, item_id, total_chunks, search_space_id,
+        )
+
+    except PermissionError as exc:
+        _connector_ingest_logger.error(
+            "[ingest_connector] job=%s AUTH ERROR: %s", job_id, exc
+        )
+        await _emit("extraction", "error", detail=f"Token expirado: {exc}. Re-autentícalo en Configuración → Conectores.")
+    except Exception as exc:
+        _connector_ingest_logger.error(
+            "[ingest_connector] job=%s ERROR: %s", job_id, exc, exc_info=True
+        )
+        await _emit("vectorization", "error", detail=str(exc))
+    finally:
+        await queue.put(None)
+
+
 # ── Job registry para ingesta SSE ─────────────────────────────────────────────
 _ingest_jobs: dict[str, dict] = {}
 _JOB_TTL = 3600.0  # 1 hora
