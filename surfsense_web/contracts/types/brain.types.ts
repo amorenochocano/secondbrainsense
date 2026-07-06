@@ -99,15 +99,15 @@ export const passportMetadata = z.object({
   source:        z.string(),
   title:         z.string(),
   doc_type:      z.string().optional().nullable(),
-  domain:        brainDomainSchema.optional().nullable(),
+  domain:        brainDomainSchema.optional().nullable().catch(null),
   importance:    z.number().int().min(1).max(5).optional().nullable(),
   confidence:    z.number().min(0).max(1).optional().nullable(),
   tags:          z.array(z.string()).default([]),
   scopes:        z.array(brainScopeSchema).default([]),
   connector_type: z.string().optional().nullable(),
   has_pii:       z.boolean().default(false),
-  updated_at:    z.string().datetime({ offset: true }).nullable(),
-  search_space_id: z.number().int().positive(),
+  updated_at:    z.string().nullable(),
+  search_space_id: z.number().int().positive().optional().nullable(),
 });
 export type PassportMetadata = z.infer<typeof passportMetadata>;
 
@@ -144,7 +144,7 @@ export type PassportHistoryResponse = z.infer<typeof passportHistoryResponse>;
 export const graphNodeSchema = z.object({
   id:      z.string(),
   label:   z.string(),
-  domain:  brainDomainSchema.optional().nullable(),
+  domain:  brainDomainSchema.optional().nullable().catch(null),
   val:     z.number().optional(),         // tamaño proporcional a importancia
   tags:    z.array(z.string()).default([]),
   summary: z.string().optional().nullable(),

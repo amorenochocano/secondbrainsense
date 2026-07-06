@@ -65,7 +65,7 @@ const log = brainLogger("BrainGraph");
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ForceGraph2D = dynamic<any>(
-  () => import("react-force-graph").then((m) => m.ForceGraph2D),
+  () => import("react-force-graph-2d"),
   {
     ssr: false,
     loading: () => (

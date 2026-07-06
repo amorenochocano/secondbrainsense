@@ -2361,6 +2361,26 @@ def _track_level_usage(level: int, search_space_id: int) -> None:
         pass
 
 
+_IMPORTANCE_MAP = {"low": 1, "medium": 3, "high": 5}
+
+def _parse_importance(value: object) -> int:
+    """Normaliza importance: acepta int, str numérico o str semántico (low/medium/high)."""
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        lower = value.strip().lower()
+        if lower in _IMPORTANCE_MAP:
+            return _IMPORTANCE_MAP[lower]
+        try:
+            return int(lower)
+        except ValueError:
+            pass
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 3
+
+
 # ── Servicio compartido: lista de pasaportes del space ────────────────────────
 async def _list_passports_for_space(search_space_id: int) -> list[dict]:
     """
@@ -2400,7 +2420,7 @@ async def _list_passports_for_space(search_space_id: int) -> list[dict]:
             "domain":     doc.get("domain"),
             "subdomain":  doc.get("subdomain"),
             "tags":       doc.get("tags", []),
-            "importance": int(doc.get("importance", 3)),
+            "importance": _parse_importance(doc.get("importance", 3)),
             "doc_type":   doc.get("type"),
             "updated_at": doc.get("updated_at", ""),
             "scopes":     doc.get("embedding_scope", ["brain", "knowledge"]),
