@@ -67,6 +67,8 @@ export const BRAIN_ENDPOINTS = {
   CONNECTORS_AVAILABLE: `${BRAIN_API_PREFIX}/connectors/available`,
   /** Ingesta desde conector externo (storage/record/chat) */
   INGEST_CONNECTOR: (connectorType: string) => `${BRAIN_API_PREFIX}/ingest/connector/${encodeURIComponent(connectorType)}`,
+  /** F5 — Ingesta de texto desde chat (sin re-fetch) */
+  INGEST_FROM_TEXT: `${BRAIN_API_PREFIX}/ingest/from-text`,
 } as const;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -76,7 +78,9 @@ export const BRAIN_ENDPOINTS = {
 /** Genera rutas Brain relativas a un search_space_id dado */
 export const BRAIN_ROUTES = {
   HOME:          (spaceId: string) => `/dashboard/${spaceId}/brain/home`,
-  CHAT:          (spaceId: string) => `/dashboard/${spaceId}/brain/chat`,
+  /** Ruta unificada de chat (F4 — /brain/chat redirige aquí) */
+  CHAT:          (spaceId: string) => `/dashboard/${spaceId}/chat`,
+  BRAIN_CHAT:    (spaceId: string) => `/dashboard/${spaceId}/brain/chat`,
   WIKI:          (spaceId: string) => `/dashboard/${spaceId}/brain/wiki`,
   WIKI_ITEM:     (spaceId: string, source: string) => `/dashboard/${spaceId}/brain/wiki/${encodeURIComponent(source)}`,
   /** Alias semántico de WIKI_ITEM — apunta al pasaporte de una fuente */

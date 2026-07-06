@@ -379,7 +379,7 @@ export function LayoutDataProvider({ searchSpaceId, children }: LayoutDataProvid
 					// ── SecondBrainSense ──────────────────────────────────				// Cabecera de sección: separador visual + label en el sidebar
 				{ title: "SecondBrainSense", icon: Brain, url: `#section-brain-${searchSpaceId}`, isSectionHeader: true },
 					{ title: "Home",     icon: LayoutDashboard, url: BRAIN_ROUTES.HOME(searchSpaceId),       isActive: pathname?.endsWith("/brain/home") },
-					{ title: "Chat",     icon: MessageCircle,   url: BRAIN_ROUTES.CHAT(searchSpaceId),       isActive: pathname?.includes("/brain/chat") },
+					{ title: "Chat",     icon: MessageCircle,   url: BRAIN_ROUTES.CHAT(searchSpaceId),       isActive: pathname?.includes("/brain/chat") || pathname?.includes(`/${searchSpaceId}/chat`) },
 					{ title: "Wiki",     icon: BookOpen,        url: BRAIN_ROUTES.WIKI(searchSpaceId),       isActive: pathname?.includes("/brain/wiki") },
 					{ title: "Grafo",    icon: Network,         url: BRAIN_ROUTES.GRAPH(searchSpaceId),      isActive: pathname?.includes("/brain/graph") },
 					{ title: "Ingestar", icon: Upload,          url: BRAIN_ROUTES.INGEST(searchSpaceId),     isActive: pathname?.includes("/brain/ingest") },

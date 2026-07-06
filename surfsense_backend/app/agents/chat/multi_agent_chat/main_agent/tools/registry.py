@@ -22,6 +22,7 @@ from typing import Any
 from langchain_core.tools import BaseTool
 
 from app.agents.chat.shared.tools.web_search import create_web_search_tool
+from app.brain.tools import create_brain_search_tool
 from app.db import ChatVisibility
 
 from .scrape_webpage import create_scrape_webpage_tool
@@ -30,6 +31,10 @@ from .update_memory import (
     create_update_memory_tool,
     create_update_team_memory_tool,
 )
+
+
+def _build_brain_search_tool(deps: dict[str, Any]) -> BaseTool:
+    return create_brain_search_tool(search_space_id=deps["search_space_id"])
 
 
 def _build_scrape_webpage_tool(deps: dict[str, Any]) -> BaseTool:
@@ -84,6 +89,10 @@ def _build_update_memory_tool(deps: dict[str, Any]) -> BaseTool:
 _MAIN_AGENT_TOOL_FACTORIES: dict[
     str, tuple[Callable[[dict[str, Any]], BaseTool], tuple[str, ...]]
 ] = {
+    "brain_search": (
+        _build_brain_search_tool,
+        ("search_space_id",),
+    ),
     "search_knowledge_base": (
         _build_search_knowledge_base_tool,
         ("search_space_id",),

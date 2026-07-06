@@ -391,6 +391,16 @@ class BrainApiService {
     );
   };
 
+  // F5 — Ingesta desde texto de chat
+  ingestFromText = async (request: IngestFromTextRequest): Promise<IngestFromTextResponse> => {
+    const parsed = ingestFromTextRequest.parse(request);
+    return baseApiService.post(
+      BRAIN_ENDPOINTS.INGEST_FROM_TEXT,
+      ingestFromTextResponse,
+      { body: parsed },
+    );
+  };
+
   // ─── Admin Brain ───────────────────────────────────────────────────────────
 
   /** Obtiene la configuración activa del pipeline Brain */

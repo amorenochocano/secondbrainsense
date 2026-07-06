@@ -2782,6 +2782,99 @@ def _cleanup_stale_jobs() -> None:
         _ingest_jobs.pop(jid, None)
 
 
+# ── F5 — Ingesta de texto desde chat (sin re-fetch del conector) ──────────────
+
+class IngestFromTextRequest(BaseModel):
+    """Body de POST /ingest/from-text."""
+    content:        str
+    filename:       str
+    search_space_id: int
+    connector_type: str | None = None  # trazabilidad (ej: "ONEDRIVE_CONNECTOR")
+
+
+class IngestFromTextResponse(BaseModel):
+    chunks_created: int
+    source: str
+
+
+@router.post("/ingest/from-text", response_model=IngestFromTextResponse)
+async def ingest_from_text(
+    body: IngestFromTextRequest,
+    db:   AsyncSession = Depends(get_async_session),
+    current_user: User = Depends(current_active_user),
+):
+    """
+    Ingesta contenido de texto en el Brain directamente, sin re-fetch del conector.
+
+    Usado por el botón "Ingestar en Brain" en el action log del chat unificado (F5).
+    El texto ya está disponible en el result del tool call — no hace falta descargarlo
+    de nuevo.
+
+    Usa IngestRouter.route_raw() — ingesta directa a knowledge/code sin síntesis LLM.
+    Respuesta síncrona (~1-2 s).
+    """
+    from app.brain.ingest_router import IngestRouter
+    from app.brain.processor_factory import DocumentProcessor
+
+    await _require_space_access(body.search_space_id, db, current_user)
+
+    if not body.content or not body.content.strip():
+        raise HTTPException(status_code=422, detail="content no puede estar vacío")
+
+    logger.info(
+        "[ingest_from_text] START filename='%s' space=%d chars=%d user=%s connector=%s",
+        body.filename, body.search_space_id, len(body.content),
+        current_user.id, body.connector_type or "—",
+    )
+
+    def _run() -> dict:
+        import datetime as _dt
+        from pathlib import Path
+        now = _dt.datetime.utcnow()
+        ingest_metadata = {
+            "ingest_origin":    "chat_tool_result",
+            "ingest_date":      now.strftime("%Y-%m-%d"),
+            "ingest_time":      now.strftime("%H:%M:%S"),
+            "connector_type":   body.connector_type or "unknown",
+        }
+
+        # Elige extensión a partir del filename para seleccionar el extractor adecuado
+        ext = Path(body.filename).suffix or ".txt"
+        processor = DocumentProcessor(extension=ext)
+
+        # Extrae bloques del texto (cleaner + quality_score, sin LLM)
+        blocks = processor.extract_from_text(
+            body.content,
+            search_space_id=body.search_space_id,
+            metadata=ingest_metadata,
+        )
+
+        if not blocks:
+            return {"knowledge": {"chunks_created": 0}, "code": {"chunks_created": 0}}
+
+        mgr     = QdrantManager.get_instance()
+        results = IngestRouter(mgr.client).route_raw(
+            blocks=blocks,
+            source=body.filename,
+            search_space_id=str(body.search_space_id),
+            ingest_metadata=ingest_metadata,
+        )
+        return results
+
+    try:
+        results = await asyncio.to_thread(_run)
+    except Exception as exc:
+        logger.error("[ingest_from_text] ERROR: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+    total = sum(v.get("chunks_created", 0) for v in results.values())
+    logger.info(
+        "[ingest_from_text] DONE filename='%s' space=%d chunks=%d",
+        body.filename, body.search_space_id, total,
+    )
+    return IngestFromTextResponse(chunks_created=total, source=body.filename)
+
+
 async def _rewrite_query_for_web(pregunta: str) -> str:
     """
     Convierte una pregunta en lenguaje natural en keywords para SearXNG.

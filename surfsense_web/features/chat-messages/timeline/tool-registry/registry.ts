@@ -13,6 +13,10 @@ import type { TimelineToolComponent } from "./types";
 // retypes them to ``TimelineToolComponent``. The cast is a structural
 // no-op — every consumed prop overlaps.
 
+const BrainSearchToolUI = dynamic(
+	() => import("@/components/tool-ui/brain-search").then((m) => ({ default: m.BrainSearchToolUI })),
+	{ ssr: false }
+);
 const UpdateMemoryToolUI = dynamic(
 	() => import("@/components/tool-ui/user-memory").then((m) => ({ default: m.UpdateMemoryToolUI })),
 	{ ssr: false }
@@ -188,6 +192,7 @@ const NullTimelineBody: TimelineToolComponent = () => null;
  * ``DefaultFallbackCard`` based on result discrimination).
  */
 const TOOLS_BY_NAME = {
+	brain_search: BrainSearchToolUI,
 	task: NullTimelineBody,
 	create_automation: CreateAutomationToolUI,
 	update_memory: UpdateMemoryToolUI,

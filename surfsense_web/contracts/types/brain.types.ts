@@ -365,6 +365,21 @@ export const ingestConnectorRequest = z.object({
 });
 export type IngestConnectorRequest = z.infer<typeof ingestConnectorRequest>;
 
+// F5 — Ingesta de texto desde chat (sin re-fetch del conector)
+export const ingestFromTextRequest = z.object({
+  content:         z.string().min(1),
+  filename:        z.string().min(1),
+  search_space_id: z.number().int().positive(),
+  connector_type:  z.string().optional(),
+});
+export type IngestFromTextRequest = z.infer<typeof ingestFromTextRequest>;
+
+export const ingestFromTextResponse = z.object({
+  chunks_created: z.number().int().nonnegative(),
+  source:         z.string(),
+});
+export type IngestFromTextResponse = z.infer<typeof ingestFromTextResponse>;
+
 /** Respuesta del lookup de alias → canónica */
 export const vocabularyLookupResponse = z.object({
   canonical_tag:  z.string().optional().nullable(),

@@ -11,6 +11,21 @@ const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 // ships what desktop users actually need.
 const nextConfig: NextConfig = {
 	output: "standalone",
+	async redirects() {
+		return [
+			// F4 — Ruta unificada de chat: /new-chat y /brain/chat apuntan a /chat
+			{
+				source: "/dashboard/:spaceId/new-chat",
+				destination: "/dashboard/:spaceId/chat",
+				permanent: true,
+			},
+			{
+				source: "/dashboard/:spaceId/new-chat/:path*",
+				destination: "/dashboard/:spaceId/chat/:path*",
+				permanent: true,
+			},
+		];
+	},
 	outputFileTracingRoot: path.join(__dirname, ".."),
 	reactStrictMode: false,
 	typescript: {
