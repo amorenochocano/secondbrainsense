@@ -2499,7 +2499,7 @@ async def brain_connectors_available(
             "connector_type": ctype,
             "name":           conn.name,
             "family":         get_family(ctype),
-            "token_ok":       token_info["ok"],
+            "ok":             token_info["ok"],
             "needs_reauth":   token_info["needs_reauth"],
             "detail":         token_info.get("detail", ""),
         })

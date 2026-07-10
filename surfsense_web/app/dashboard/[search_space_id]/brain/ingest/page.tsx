@@ -56,6 +56,10 @@ import {
   type IngestCategory,
 } from "@/lib/brain/constants";
 import type { AvailableConnector } from "@/contracts/types/brain.types";
+import {
+  ConnectorIndicator,
+  type ConnectorIndicatorHandle,
+} from "@/components/assistant-ui/connector-popup";
 
 const log = brainLogger("BrainIngestPage");
 
@@ -321,6 +325,7 @@ function ConnectorTab({ spaceId, selectedModel, isIngesting, onStartJob }: Conne
   const [itemId, setItemId] = useState("");
   const [filename, setFilename] = useState("");
   const [isKnownFormat, setIsKnownFormat] = useState<boolean | null>(null);
+  const connectorDialogRef = useRef<ConnectorIndicatorHandle>(null);
 
   const { data: connectors, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["brain", "connectors-available", Number(spaceId)],
@@ -386,11 +391,14 @@ function ConnectorTab({ spaceId, selectedModel, isIngesting, onStartJob }: Conne
     );
   }
 
-  const available = (connectors ?? []).filter((c) => c.ok);
-  const unavailable = (connectors ?? []).filter((c) => !c.ok);
+  const available = (connectors?.connectors ?? []).filter((c) => c.ok);
+  const unavailable = (connectors?.connectors ?? []).filter((c) => !c.ok);
 
   return (
     <div className="space-y-4">
+      {/* ConnectorIndicator montado aquí — invisible, solo expone open() vía ref */}
+      <ConnectorIndicator ref={connectorDialogRef} />
+
       {/* Selector de conector */}
       <div className="rounded-xl border border-border bg-card p-5 space-y-4">
         <div className="flex items-center justify-between">
@@ -398,21 +406,44 @@ function ConnectorTab({ spaceId, selectedModel, isIngesting, onStartJob }: Conne
             <Plug className="h-4 w-4 text-violet-400" />
             <h2 className="text-sm font-semibold text-foreground">Conector externo</h2>
           </div>
-          <button
-            type="button"
-            onClick={() => refetch()}
-            disabled={isFetching}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground/80 transition-colors"
-          >
-            <RefreshCw className={cn("h-3 w-3", isFetching && "animate-spin")} />
-            Actualizar
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground/80 transition-colors"
+            >
+              <RefreshCw className={cn("h-3 w-3", isFetching && "animate-spin")} />
+              Actualizar
+            </button>
+            <button
+              type="button"
+              onClick={() => connectorDialogRef.current?.open()}
+              className="flex items-center gap-1 text-xs text-violet-400 hover:text-violet-300 transition-colors"
+            >
+              <Plug className="h-3 w-3" />
+              Gestionar
+            </button>
+          </div>
         </div>
 
         {available.length === 0 && unavailable.length === 0 ? (
-          <p className="text-xs text-muted-foreground">
-            No hay conectores configurados. Añade uno desde la sección de fuentes del espacio.
-          </p>
+          <div className="flex flex-col items-center justify-center gap-3 py-6 text-center">
+            <Plug className="h-8 w-8 text-muted-foreground/40" />
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-foreground/70">Sin conectores configurados</p>
+              <p className="text-xs text-muted-foreground">Conecta Confluence, Jira, GitHub u OneDrive para ingestar desde fuentes externas.</p>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => connectorDialogRef.current?.open()}
+              className="gap-1.5 border-violet-500/40 text-violet-400 hover:text-violet-300 hover:border-violet-400/60 hover:bg-violet-500/10"
+            >
+              <Plug className="h-3.5 w-3.5" />
+              Configurar conector
+            </Button>
+          </div>
         ) : (
           <div className="space-y-2">
             {available.map((c) => (
@@ -626,10 +657,9 @@ export default function BrainIngestPage() {
 
   // ── Info pipeline ─────────────────────────────────────────────────────────────
   const pipelineSteps = [
-    { icon: "📥", title: "Extracción",    desc: "Parseo especializado según el tipo de fichero (PDF, código, Markdown…)" },
-    { icon: "🧠", title: "Síntesis L1",  desc: "Un LLM genera el pasaporte semántico → colección brain de Qdrant" },
-    { icon: "📦", title: "Chunking L2",  desc: "Fragmentación semántica del contenido → colecciones knowledge/code" },
-    { icon: "🔢", title: "Vectorización",desc: "Embeddings almacenados en Qdrant para búsqueda RAG" },
+    { icon: "📥", title: "Extracción",         desc: "Parseo del fichero y generación de chunks según formato (PDF, código, Markdown…)" },
+    { icon: "🧠", title: "Síntesis semántica", desc: "LLM genera el pasaporte semántico del documento" },
+    { icon: "🗄️", title: "Indexación",         desc: "Chunks + embeddings → Qdrant (brain / knowledge / code) + PostgreSQL BM25" },
   ];
 
   return (

@@ -44,6 +44,8 @@ CONNECTOR_FAMILIES: dict[str, str] = {
     "GOOGLE_DRIVE_CONNECTOR":    "storage",
     "DROPBOX_CONNECTOR":         "storage",
     # Record — entidades estructuradas serializadas a Markdown
+    "CONFLUENCE_CONNECTOR":      "record",
+    "JIRA_CONNECTOR":            "record",
     "AIRTABLE_CONNECTOR":        "record",
     "CLICKUP_CONNECTOR":         "record",
     "LINEAR_CONNECTOR":          "record",

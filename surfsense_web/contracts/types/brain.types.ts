@@ -351,7 +351,10 @@ export const availableConnectorSchema = z.object({
 });
 export type AvailableConnector = z.infer<typeof availableConnectorSchema>;
 
-export const availableConnectorsResponse = z.array(availableConnectorSchema);
+export const availableConnectorsResponse = z.object({
+  connectors: z.array(availableConnectorSchema),
+  count:      z.number().int(),
+});
 export type AvailableConnectorsResponse = z.infer<typeof availableConnectorsResponse>;
 
 /** Request para ingestar un ítem de conector */
