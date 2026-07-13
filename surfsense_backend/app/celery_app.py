@@ -195,13 +195,16 @@ celery_app = Celery(
         "app.automations.tasks.execute_run",
         "app.automations.triggers.builtin.schedule.selector",
         "app.automations.triggers.builtin.event.selector",
+        "app.tasks.celery_tasks.brain_ingest_tasks",
     ],
 )
 
 # ── Queue names ──────────────────────────────────────────────
 # Default queue  : fast, user-facing tasks (file upload, podcast, reindex, …)
 # Connectors queue: slow, long-running indexing tasks (Notion, Gmail, web crawl, …)
+# Brain queue    : LLM-heavy ingestion tasks (extraction + synthesis + Qdrant)
 CONNECTORS_QUEUE = f"{CELERY_TASK_DEFAULT_QUEUE}.connectors"
+BRAIN_QUEUE      = f"{CELERY_TASK_DEFAULT_QUEUE}.brain"
 
 # Celery configuration
 celery_app.conf.update(
@@ -249,6 +252,11 @@ celery_app.conf.update(
         "index_obsidian_attachment": {"queue": CONNECTORS_QUEUE},
         # Everything else (document processing, podcasts, reindexing,
         # schedule checker, cleanup) stays on the default fast queue.
+        # Brain ingestion tasks → brain queue (LLM synthesis can take minutes)
+        "brain_ingest_url":       {"queue": BRAIN_QUEUE},
+        "brain_ingest_file":      {"queue": BRAIN_QUEUE},
+        "brain_ingest_path":      {"queue": BRAIN_QUEUE},
+        "brain_ingest_connector": {"queue": BRAIN_QUEUE},
         "gateway.reconcile_inbox": {"queue": f"{CELERY_TASK_DEFAULT_QUEUE}.gateway"},
         "gateway.health_check": {"queue": f"{CELERY_TASK_DEFAULT_QUEUE}.gateway"},
         "gateway.retention_sweep": {"queue": f"{CELERY_TASK_DEFAULT_QUEUE}.gateway"},

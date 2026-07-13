@@ -99,7 +99,7 @@ start_worker() {
         # gateway maintenance queues. Without --queues, Celery only consumes
         # from the default queue, leaving connector/gateway maintenance tasks stuck.
         DEFAULT_Q="${CELERY_TASK_DEFAULT_QUEUE:-surfsense}"
-        QUEUE_ARGS="--queues=${DEFAULT_Q},${DEFAULT_Q}.connectors,${DEFAULT_Q}.gateway"
+        QUEUE_ARGS="--queues=${DEFAULT_Q},${DEFAULT_Q}.connectors,${DEFAULT_Q}.gateway,${DEFAULT_Q}.brain"
     fi
 
     echo "Starting Celery Worker (autoscale=${CELERY_MAX_WORKERS},${CELERY_MIN_WORKERS}, max-tasks-per-child=${CELERY_MAX_TASKS_PER_CHILD}, queues=${CELERY_QUEUES:-all})..."

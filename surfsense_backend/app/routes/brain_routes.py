@@ -55,7 +55,6 @@ import asyncio
 import datetime
 import logging
 import os
-import time
 import uuid
 
 import redis as redis_lib
@@ -1529,165 +1528,43 @@ class IngestUrlRequest(BaseModel):
 @router.post("/ingest/url")
 async def ingest_url(
     body: IngestUrlRequest,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_async_session),
     current_user: User = Depends(current_active_user),
 ):
     """
-    Inicia la ingesta de una URL.
+    Inicia la ingesta de una URL vía tarea Celery.
 
-    Flujo de 4 fases (todas en background):
-      1. extraction  — WebExtractor.extract_url() → bloques
-      2. cleaning    — concatenación de texto limpio
-      3. embedding   — DocumentSynthesizer → .md → BrainWriter
-      4. qdrant      — IngestRouter → vectores Qdrant + Redis timestamps
-
-    Devuelve job_id para suscribirse a GET /ingest/stream?job_id=<id>.
+    El pipeline (extracción → síntesis LLM → indexación Qdrant) corre en un
+    worker Celery dedicado. El progreso se emite por Redis Pub/Sub al canal
+    brain:ingest:<job_id> y se consume desde GET /ingest/stream?job_id=<id>.
     """
+    from app.tasks.celery_tasks.brain_ingest_tasks import brain_ingest_url_task
+
     await _require_space_access(body.search_space_id, db, current_user)
 
-    _cleanup_stale_jobs()
-
     job_id = str(uuid.uuid4())
-    queue: asyncio.Queue = asyncio.Queue()
-    _ingest_jobs[job_id] = {"queue": queue, "created_at": time.monotonic()}
 
     _ingest_logger.info(
-        "[ingest_url] job=%s url='%s' space=%d user=%s",
+        "[ingest_url] CELERY job=%s url='%s' space=%d user=%s",
         job_id, body.url, body.search_space_id, current_user.id,
     )
 
-    background_tasks.add_task(
-        _run_ingest_pipeline,
-        url=body.url,
-        search_space_id=body.search_space_id,
-        model=body.model,
-        provider=body.provider,
-        queue=queue,
-        job_id=job_id,
+    brain_ingest_url_task.apply_async(
+        kwargs={
+            "task_id":        job_id,
+            "url":            body.url,
+            "search_space_id": body.search_space_id,
+            "model":          body.model,
+            "provider":       body.provider,
+        },
+        task_id=job_id,
     )
 
     return {"job_id": job_id, "status": "queued", "background": True}
 
 
-async def _run_ingest_pipeline(
-    url: str,
-    search_space_id: int,
-    model: str | None,
-    provider: str | None,
-    queue: asyncio.Queue,
-    job_id: str,
-) -> None:
-    """
-    Pipeline de ingesta de 4 fases. Emite eventos SSE a la cola.
-    None en la cola = señal de fin de stream.
-
-    Cada evento tiene la forma:
-      {"phase": str, "status": "running"|"ok"|"error", "chunks": int, "detail": str}
-    """
-    from app.brain.extractors.web import WebExtractor
-    from app.brain.synthesizer import DocumentSynthesizer
-    from app.brain.ingest_router import IngestRouter
-    from app.brain.writer import BrainWriter
-
-    async def _emit(phase: str, status: str, chunks: int = 0, detail: str = "") -> None:
-        event = {"phase": phase, "status": status, "chunks": chunks, "detail": detail}
-        _ingest_logger.debug("[ingest_url] job=%s event=%s", job_id, event)
-        await queue.put(event)
-
-    try:
-        # ── FASE 1: Extracción HTML/Markdown ──────────────────────────────────
-        await _emit("extraction", "running")
-        blocks = await asyncio.to_thread(WebExtractor().extract_url, url)
-        if not blocks:
-            await _emit("extraction", "error", detail="Sin contenido extraíble de la URL")
-            return
-        await _emit("extraction", "ok", chunks=len(blocks))
-        _ingest_logger.info(
-            "[ingest_url] job=%s extraction OK: %d bloques", job_id, len(blocks)
-        )
-
-        # ── FASE 2: Síntesis del pasaporte con LLM ───────────────────────────
-        await _emit("synthesis", "running")
-        full_text = "\n\n".join(
-            b.get("content", "") for b in blocks if b.get("content")
-        ).strip()
-        if not full_text:
-            await _emit("synthesis", "error", detail="El contenido extraído está vacío")
-            return
-        synth_model    = model    or os.getenv("SYNTHESIS_MODEL",    "qwen2.5-coder:3b")
-        synth_provider = provider or os.getenv("BRAIN_LLM_PROVIDER", "ollama")
-
-        def _synthesize() -> str:
-            result = DocumentSynthesizer().synthesize(
-                source=url,
-                file_type="html",
-                full_text=full_text,
-                blocks=blocks,
-                model=synth_model,
-                provider=synth_provider,
-                search_space_id=str(search_space_id),
-            )
-            return result.get("md_content", "") if isinstance(result, dict) else str(result)
-
-        new_md = await asyncio.to_thread(_synthesize)
-        if not new_md.strip():
-            await _emit("synthesis", "error", detail="El sintetizador devolvió contenido vacío")
-            return
-
-        await asyncio.to_thread(BrainWriter().write, url, new_md)
-        await _emit("synthesis", "ok")
-        _ingest_logger.info("[ingest_url] job=%s synthesis OK: %d chars", job_id, len(new_md))
-
-        # ── FASE 3: Indexación — chunks + embeddings + Qdrant + PostgreSQL BM25 ─
-        await _emit("indexing", "running")
-
-        def _vectorize() -> int:
-            results = IngestRouter(QdrantManager.get_instance().client).route(
-                md_content=new_md,
-                blocks=blocks,
-                source=url,
-                search_space_id=str(search_space_id),
-            )
-            if isinstance(results, dict):
-                return sum(v.get("chunks_created", 0) for v in results.values() if isinstance(v, dict))
-            return 0
-
-        total_chunks = await asyncio.to_thread(_vectorize)
-
-        # Registrar timestamps en Redis (fire-and-forget)
-        def _register_redis() -> None:
-            try:
-                r = redis_lib.from_url(os.getenv("REDIS_APP_URL", "redis://redis:6379/0"))
-                now_iso = datetime.datetime.utcnow().isoformat()
-                r.set(f"brain:last_ingest:space:{search_space_id}", now_iso)
-                r.set(f"brain:last_ingest_doc:space:{search_space_id}", url)
-            except Exception as exc:
-                _ingest_logger.warning(
-                    "[ingest_url] job=%s Redis timestamp error: %s", job_id, exc
-                )
-
-        await asyncio.to_thread(_register_redis)
-
-        await _emit("indexing", "ok", chunks=total_chunks)
-        _ingest_logger.info(
-            "[ingest_url] job=%s DONE url='%s' chunks=%d space=%d",
-            job_id, url, total_chunks, search_space_id,
-        )
-
-    except Exception as exc:
-        _ingest_logger.error(
-            "[ingest_url] job=%s ERROR url='%s': %s", job_id, url, exc, exc_info=True
-        )
-        await _emit("indexing", "error", detail=str(exc))
-    finally:
-        # None = señal de fin de stream para el generador SSE
-        await queue.put(None)
-
-
 @router.post("/ingest/file")
 async def ingest_file(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     search_space_id: int = Form(...),
     model: str | None = Form(None),
@@ -1696,187 +1573,73 @@ async def ingest_file(
     current_user: User = Depends(current_active_user),
 ):
     """
-    Ingesta de fichero subido por el usuario (multipart/form-data).
-
-    El fichero se guarda temporalmente, se procesa con el extractor adecuado
-    según la extensión y sigue el mismo pipeline de 4 fases que /ingest/url.
+    Ingesta de fichero subido por el usuario (multipart/form-data) vía tarea Celery.
+    Los bytes se codifican en base64 para serialización JSON segura.
     """
+    import base64 as _b64
+    from app.tasks.celery_tasks.brain_ingest_tasks import brain_ingest_file_task
+
     await _require_space_access(search_space_id, db, current_user)
-    _cleanup_stale_jobs()
 
     filename = file.filename or "upload"
-    job_id = str(uuid.uuid4())
-    queue: asyncio.Queue = asyncio.Queue()
-    _ingest_jobs[job_id] = {"queue": queue, "created_at": time.monotonic()}
+    content  = await file.read()
+    job_id   = str(uuid.uuid4())
 
     _ingest_logger.info(
-        "[ingest_file] job=%s filename='%s' space=%d user=%s",
-        job_id, filename, search_space_id, current_user.id,
+        "[ingest_file] CELERY job=%s filename='%s' space=%d user=%s bytes=%d",
+        job_id, filename, search_space_id, current_user.id, len(content),
     )
 
-    content = await file.read()
-
-    background_tasks.add_task(
-        _run_ingest_file_pipeline,
-        filename=filename,
-        content=content,
-        search_space_id=search_space_id,
-        model=model,
-        provider=provider,
-        queue=queue,
-        job_id=job_id,
+    brain_ingest_file_task.apply_async(
+        kwargs={
+            "task_id":         job_id,
+            "filename":        filename,
+            "content_b64":     _b64.b64encode(content).decode(),
+            "search_space_id": search_space_id,
+            "model":           model,
+            "provider":        provider,
+        },
+        task_id=job_id,
     )
 
     return {"job_id": job_id, "status": "queued", "background": True}
 
 
-async def _run_ingest_file_pipeline(
-    filename: str,
-    content: bytes,
-    search_space_id: int,
-    model: str | None,
-    provider: str | None,
-    queue: asyncio.Queue,
-    job_id: str,
-) -> None:
-    """Pipeline de 4 fases para ingesta de fichero subido."""
-    import tempfile
-    import pathlib
-    import tempfile as _tempfile
-    from app.brain.extractors.factory import ExtractorFactory
-    from app.brain.synthesizer import DocumentSynthesizer
-    from app.brain.ingest_router import IngestRouter
-    from app.brain.writer import BrainWriter
-
-    async def _emit(phase: str, status: str, chunks: int = 0, detail: str = "") -> None:
-        event = {"phase": phase, "status": status, "chunks": chunks, "detail": detail}
-        _ingest_logger.debug("[ingest_file] job=%s event=%s", job_id, event)
-        await queue.put(event)
-
-    suffix = pathlib.Path(filename).suffix.lower() or ".bin"
-    tmp_path = None
-
-    try:
-        with _tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            tmp.write(content)
-            tmp_path = tmp.name
-
-        # ── FASE 1: Extracción ────────────────────────────────────────────────
-        await _emit("extraction", "running")
-
-        def _extract():
-            return ExtractorFactory.extract(tmp_path)
-
-        blocks = await asyncio.to_thread(_extract)
-        if not blocks:
-            await _emit("extraction", "error", detail="Sin contenido extraíble del fichero")
-            return
-        await _emit("extraction", "ok", chunks=len(blocks))
-
-        # ── FASE 2: Síntesis ──────────────────────────────────────────────────
-        await _emit("synthesis", "running")
-        synth_model    = model    or os.getenv("SYNTHESIS_MODEL",    "qwen2.5-coder:3b")
-        synth_provider = provider or os.getenv("BRAIN_LLM_PROVIDER", "ollama")
-
-        def _synthesize():
-            full_text = "\n\n".join(b.get("content", "") for b in blocks if b.get("content")).strip()
-            result = DocumentSynthesizer().synthesize(
-                source=filename,
-                file_type=suffix.lstrip("."),
-                full_text=full_text,
-                blocks=blocks,
-                model=synth_model,
-                provider=synth_provider,
-                ingest_metadata={"ingest_origin": "file_upload", "ingest_path": filename},
-                search_space_id=str(search_space_id),
-            )
-            return result.get("md_content", "") if isinstance(result, dict) else str(result)
-
-        new_md = await asyncio.to_thread(_synthesize)
-        if not new_md.strip():
-            await _emit("synthesis", "error", detail="El sintetizador devolvió contenido vacío")
-            return
-        await asyncio.to_thread(BrainWriter().write, filename, new_md)
-        await _emit("synthesis", "ok")
-
-        # ── FASE 3: Indexación — chunks + embeddings + Qdrant + PostgreSQL BM25 ─
-        await _emit("indexing", "running")
-
-        def _vectorize():
-            results = IngestRouter(QdrantManager.get_instance().client).route(
-                md_content=new_md,
-                blocks=blocks,
-                source=filename,
-                search_space_id=str(search_space_id),
-            )
-            if isinstance(results, dict):
-                return sum(v.get("chunks_created", 0) for v in results.values() if isinstance(v, dict))
-            return 0
-
-        total_chunks = await asyncio.to_thread(_vectorize)
-        await _emit("indexing", "ok", chunks=total_chunks)
-        _ingest_logger.info(
-            "[ingest_file] job=%s DONE filename='%s' chunks=%d space=%d",
-            job_id, filename, total_chunks, search_space_id,
-        )
-
-    except Exception as exc:
-        _ingest_logger.error(
-            "[ingest_file] job=%s ERROR filename='%s': %s", job_id, filename, exc, exc_info=True,
-        )
-        await _emit("indexing", "error", detail=str(exc))
-    finally:
-        import os as _os
-        try:
-            _os.unlink(tmp_path)
-        except Exception:
-            pass
-        await queue.put(None)
-
-
 @router.post("/ingest/path")
 async def ingest_local_path(
     body: "IngestPathRequest",
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_async_session),
     current_user: User = Depends(current_active_user),
 ):
     """
-    Ingesta de fichero o directorio por ruta local del servidor.
-
-    Útil en despliegues on-premise donde los documentos ya residen
-    en el sistema de ficheros del servidor o en un volumen montado.
+    Ingesta de fichero por ruta local del servidor vía tarea Celery.
+    Útil en despliegues on-premise con documentos en volumen montado.
     """
-    from app.brain.extractors.factory import ExtractorFactory
-    from app.brain.synthesizer import DocumentSynthesizer
-    from app.brain.ingest_router import IngestRouter
-    from app.brain.writer import BrainWriter
     import pathlib
+    from app.tasks.celery_tasks.brain_ingest_tasks import brain_ingest_path_task
 
     await _require_space_access(body.search_space_id, db, current_user)
-    _cleanup_stale_jobs()
 
     path_obj = pathlib.Path(body.local_path)
     if not path_obj.exists():
         raise HTTPException(status_code=400, detail=f"Ruta no encontrada: {body.local_path}")
 
     job_id = str(uuid.uuid4())
-    queue: asyncio.Queue = asyncio.Queue()
-    _ingest_jobs[job_id] = {"queue": queue, "created_at": time.monotonic()}
 
     _ingest_logger.info(
-        "[ingest_path] job=%s path='%s' space=%d user=%s",
+        "[ingest_path] CELERY job=%s path='%s' space=%d user=%s",
         job_id, body.local_path, body.search_space_id, current_user.id,
     )
 
-    background_tasks.add_task(
-        _run_ingest_path_pipeline,
-        local_path=body.local_path,
-        search_space_id=body.search_space_id,
-        model=body.model,
-        provider=body.provider,
-        queue=queue,
-        job_id=job_id,
+    brain_ingest_path_task.apply_async(
+        kwargs={
+            "task_id":         job_id,
+            "local_path":      body.local_path,
+            "search_space_id": body.search_space_id,
+            "model":           body.model,
+            "provider":        body.provider,
+        },
+        task_id=job_id,
     )
 
     return {"job_id": job_id, "status": "queued", "background": True}
@@ -1890,99 +1653,6 @@ class IngestPathRequest(BaseModel):
     provider: str | None = None
 
 
-async def _run_ingest_path_pipeline(
-    local_path: str,
-    search_space_id: int,
-    model: str | None,
-    provider: str | None,
-    queue: asyncio.Queue,
-    job_id: str,
-) -> None:
-    """Pipeline de 4 fases para ingesta desde ruta local."""
-    import pathlib
-    from app.brain.extractors.factory import ExtractorFactory
-    from app.brain.synthesizer import DocumentSynthesizer
-    from app.brain.ingest_router import IngestRouter
-    from app.brain.writer import BrainWriter
-
-    async def _emit(phase: str, status: str, chunks: int = 0, detail: str = "") -> None:
-        event = {"phase": phase, "status": status, "chunks": chunks, "detail": detail}
-        _ingest_logger.debug("[ingest_path] job=%s event=%s", job_id, event)
-        await queue.put(event)
-
-    path_obj = pathlib.Path(local_path)
-    filename = path_obj.name
-    suffix   = path_obj.suffix.lower()
-
-    try:
-        # ── FASE 1: Extracción ────────────────────────────────────────────────
-        await _emit("extraction", "running")
-
-        def _extract():
-            return ExtractorFactory.extract(local_path)
-
-        blocks = await asyncio.to_thread(_extract)
-        if not blocks:
-            await _emit("extraction", "error", detail="Sin contenido extraíble del fichero")
-            return
-        await _emit("extraction", "ok", chunks=len(blocks))
-
-        # ── FASE 2: Síntesis ──────────────────────────────────────────────────
-        await _emit("synthesis", "running")
-        synth_model    = model    or os.getenv("SYNTHESIS_MODEL",    "qwen2.5-coder:3b")
-        synth_provider = provider or os.getenv("BRAIN_LLM_PROVIDER", "ollama")
-
-        def _synthesize():
-            full_text = "\n\n".join(b.get("content", "") for b in blocks if b.get("content")).strip()
-            result = DocumentSynthesizer().synthesize(
-                source=local_path,
-                file_type=suffix.lstrip("."),
-                full_text=full_text,
-                blocks=blocks,
-                model=synth_model,
-                provider=synth_provider,
-                ingest_metadata={"ingest_origin": "local", "ingest_path": local_path},
-                search_space_id=str(search_space_id),
-            )
-            return result.get("md_content", "") if isinstance(result, dict) else str(result)
-
-        new_md = await asyncio.to_thread(_synthesize)
-        if not new_md.strip():
-            await _emit("synthesis", "error", detail="El sintetizador devolvió contenido vacío")
-            return
-        await asyncio.to_thread(BrainWriter().write, local_path, new_md)
-        await _emit("synthesis", "ok")
-
-        # ── FASE 3: Indexación — chunks + embeddings + Qdrant + PostgreSQL BM25 ─
-        await _emit("indexing", "running")
-
-        def _vectorize():
-            results = IngestRouter(QdrantManager.get_instance().client).route(
-                md_content=new_md,
-                blocks=blocks,
-                source=local_path,
-                search_space_id=str(search_space_id),
-            )
-            if isinstance(results, dict):
-                return sum(v.get("chunks_created", 0) for v in results.values() if isinstance(v, dict))
-            return 0
-
-        total_chunks = await asyncio.to_thread(_vectorize)
-        await _emit("indexing", "ok", chunks=total_chunks)
-        _ingest_logger.info(
-            "[ingest_path] job=%s DONE path='%s' chunks=%d space=%d",
-            job_id, local_path, total_chunks, search_space_id,
-        )
-
-    except Exception as exc:
-        _ingest_logger.error(
-            "[ingest_path] job=%s ERROR path='%s': %s", job_id, local_path, exc, exc_info=True,
-        )
-        await _emit("indexing", "error", detail=str(exc))
-    finally:
-        await queue.put(None)
-
-
 @router.get("/ingest/stream")
 async def ingest_stream(
     job_id: str,
@@ -1991,74 +1661,79 @@ async def ingest_stream(
     """
     Server-Sent Events (SSE) del progreso de ingesta.
 
-    El cliente debe usar fetch() + 'Authorization: Bearer <token>'
-    ya que el EventSource nativo del navegador no soporta cabeceras personalizadas.
+    Soporta dos backends según el origen del job:
+      - Celery (URL): Redis Pub/Sub en canal brain:ingest:<job_id>.
+      - BackgroundTask (file/path): asyncio.Queue (legacy, se migrará en Fase 4).
 
-    Protocolo de eventos:
+    El cliente usa fetch() + 'Authorization: Bearer <token>' porque EventSource
+    nativo no soporta cabeceras personalizadas.
+
+    Protocolo:
       data: {"phase":"extraction","status":"running","chunks":0,"detail":""}
-      data: {"phase":"extraction","status":"ok","chunks":15,"detail":""}
       ...
       data: [DONE]
-
-    Fases: extraction → cleaning → embedding → qdrant
-    Status: "running" | "ok" | "error"
     """
     import json as _json
+    import redis.asyncio as aioredis
 
-    job_meta = _ingest_jobs.get(job_id)
-    if job_meta is None:
-        # El job ya terminó antes de que el cliente abriera el stream — devolver DONE limpio
-        async def _already_done():
-            yield "data: [DONE]\n\n"
-        return StreamingResponse(
-            _already_done(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
+    _SSE_HEADERS = {
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Connection": "keep-alive",
+    }
 
-    queue: asyncio.Queue = job_meta["queue"]
+    # ── Job Celery — Redis Pub/Sub ────────────────────────────────────────────
+    _ingest_logger.info("[ingest_stream] Redis Pub/Sub SSE job=%s user=%s", job_id, current_user.id)
 
-    _ingest_logger.info(
-        "[ingest_stream] SSE iniciado job=%s user=%s", job_id, current_user.id
-    )
+    redis_url = os.getenv("REDIS_APP_URL", "redis://redis:6379/0")
+    _CHANNEL   = f"brain:ingest:{job_id}"
+    _RESULT_K  = f"brain:ingest:result:{job_id}"
 
-    async def _event_generator():
-        """
-        Genera eventos SSE hasta recibir None (fin normal)
-        o hasta timeout de 120 s sin actividad (protección ante pipelines colgados).
-        """
+    async def _pubsub_generator():
+        r = aioredis.from_url(redis_url, decode_responses=True)
+        pubsub = r.pubsub()
         try:
+            # Suscribir antes de comprobar el resultado para evitar la ventana
+            # de carrera: task termina entre check y subscribe → perderíamos [DONE].
+            await pubsub.subscribe(_CHANNEL)
+
+            # Si el resultado ya está en Redis, la tarea terminó antes de conectar
+            result_raw = await r.get(_RESULT_K)
+            if result_raw is not None:
+                _ingest_logger.info("[ingest_stream] job=%s ya completado (Redis result) → [DONE]", job_id)
+                yield "data: [DONE]\n\n"
+                return
+
             while True:
                 try:
-                    event = await asyncio.wait_for(queue.get(), timeout=120.0)
-                except asyncio.TimeoutError:
-                    _ingest_logger.warning(
-                        "[ingest_stream] job=%s timeout de 120 s sin eventos → cerrando", job_id
+                    msg = await asyncio.wait_for(
+                        pubsub.get_message(ignore_subscribe_messages=True, timeout=0.05),
+                        timeout=120.0,
                     )
+                except asyncio.TimeoutError:
+                    _ingest_logger.warning("[ingest_stream] job=%s Pub/Sub timeout 120s → [DONE]", job_id)
                     yield "data: [DONE]\n\n"
                     return
 
-                if event is None:
-                    # Fin limpio del pipeline
+                if msg is None:
+                    await asyncio.sleep(0.05)
+                    continue
+
+                data = msg.get("data", "")
+                if data == "[DONE]":
                     yield "data: [DONE]\n\n"
                     return
-
-                yield f"data: {_json.dumps(event, ensure_ascii=False)}\n\n"
+                yield f"data: {data}\n\n"
 
         finally:
-            # Limpiar el job del registro al cerrar la conexión
-            _ingest_jobs.pop(job_id, None)
-            _ingest_logger.info("[ingest_stream] SSE cerrado job=%s", job_id)
+            try:
+                await pubsub.unsubscribe(_CHANNEL)
+                await r.aclose()
+            except Exception:
+                pass
+            _ingest_logger.info("[ingest_stream] Redis Pub/Sub SSE cerrado job=%s", job_id)
 
-    return StreamingResponse(
-        _event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",   # desactiva buffering nginx/proxy
-            "Connection": "keep-alive",
-        },
-    )
+    return StreamingResponse(_pubsub_generator(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
 @router.delete("/document/{source}")
@@ -2452,7 +2127,7 @@ async def _save_passport_version(source: str, content: str) -> None:
 #   POST /api/v1/brain/ingest/connector/{connector_type}
 #       Ingesta un ítem de un conector upstream usando SSE (mismo patrón que /ingest/file).
 #
-# Reutiliza: _ingest_jobs, _cleanup_stale_jobs, el stream GET /ingest/stream.
+# Reutiliza: el stream GET /ingest/stream (Redis Pub/Sub).
 
 _connector_ingest_logger = logging.getLogger("surfsense.brain.connector_ingest")
 
@@ -2533,7 +2208,6 @@ class IngestConnectorRequest(BaseModel):
 async def ingest_connector_item(
     connector_type: str,
     body: IngestConnectorRequest,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_async_session),
     current_user: User = Depends(current_active_user),
 ):
@@ -2604,209 +2278,32 @@ async def ingest_connector_item(
             ),
         )
 
-    _cleanup_stale_jobs()
+    from app.tasks.celery_tasks.brain_ingest_tasks import brain_ingest_connector_task
 
     job_id = str(uuid.uuid4())
-    queue: asyncio.Queue = asyncio.Queue()
-    _ingest_jobs[job_id] = {"queue": queue, "created_at": time.monotonic()}
+    connector_config = dict(connector_record.config or {})
 
     _connector_ingest_logger.info(
-        "[ingest_connector] job=%s connector=%s item_id=%s filename='%s' space=%d user=%s",
+        "[ingest_connector] CELERY job=%s connector=%s item_id=%s filename='%s' space=%d user=%s",
         job_id, ctype, body.item_id, body.filename, body.search_space_id, current_user.id,
     )
 
-    # Pasar config serializado — el conector ORM no se puede pasar entre threads directamente
-    connector_config = dict(connector_record.config or {})
-
-    background_tasks.add_task(
-        _run_ingest_connector_pipeline,
-        connector_type=ctype,
-        connector_id=body.connector_id,
-        connector_config=connector_config,
-        item_id=body.item_id,
-        filename=body.filename,
-        search_space_id=body.search_space_id,
-        model=body.model,
-        provider=body.provider,
-        queue=queue,
-        job_id=job_id,
+    brain_ingest_connector_task.apply_async(
+        kwargs={
+            "task_id":         job_id,
+            "connector_type":  ctype,
+            "connector_id":    body.connector_id,
+            "connector_config": connector_config,
+            "item_id":         body.item_id,
+            "filename":        body.filename,
+            "search_space_id": body.search_space_id,
+            "model":           body.model,
+            "provider":        body.provider,
+        },
+        task_id=job_id,
     )
 
     return {"job_id": job_id, "status": "queued", "background": True}
-
-
-async def _run_ingest_connector_pipeline(
-    connector_type: str,
-    connector_id: int,
-    connector_config: dict,
-    item_id: str,
-    filename: str,
-    search_space_id: int,
-    model: str | None,
-    provider: str | None,
-    queue: asyncio.Queue,
-    job_id: str,
-) -> None:
-    """
-    Pipeline de 4 fases para ingesta desde conector SurfSense upstream.
-
-    Misma estructura que _run_ingest_file_pipeline.
-    None en la cola = señal de fin de stream.
-    """
-    from app.brain.connectors.surfsense_adapter import (
-        SurfSenseStorageAdapter, get_family,
-    )
-    from app.brain.synthesizer import DocumentSynthesizer
-    from app.brain.ingest_router import IngestRouter
-    from app.brain.writer import BrainWriter
-    from pathlib import Path
-
-    async def _emit(phase: str, status: str, chunks: int = 0, detail: str = "") -> None:
-        event = {"phase": phase, "status": status, "chunks": chunks, "detail": detail}
-        _connector_ingest_logger.debug("[ingest_connector] job=%s event=%s", job_id, event)
-        await queue.put(event)
-
-    family = get_family(connector_type)
-
-    try:
-        # ── FASE 1: Extracción desde el conector ──────────────────────────────
-        await _emit("extraction", "running")
-
-        if family == "storage":
-            # Crear objeto fake del conector con el config serializado
-            # para pasarlo al adaptador (evita dependencia de ORM en thread)
-            class _FakeConnector:
-                def __init__(self, cid, ctype, cfg):
-                    self.id = cid
-                    self.connector_type = ctype
-                    self.config = cfg
-
-            fake_conn = _FakeConnector(connector_id, connector_type, connector_config)
-            adapter = SurfSenseStorageAdapter()
-            adapted = await adapter.fetch_item(
-                connector_record=fake_conn,
-                item_id=item_id,
-                filename=filename,
-                db=None,
-            )
-        else:
-            # record/chat: no implementamos descarga automática en esta fase.
-            # El endpoint de record/chat requiere que el caller pase los datos pre-fetched.
-            # Para el pipeline automático de storage, family != storage es un no-op aquí.
-            await _emit("extraction", "error",
-                        detail=f"Ingesta automática no implementada para familia '{family}'. "
-                               f"Usa el endpoint de ingesta manual para {connector_type}.")
-            return
-
-        blocks = adapted.blocks
-        if not blocks:
-            await _emit("extraction", "error", detail="Sin contenido extraíble del conector")
-            return
-
-        await _emit("extraction", "ok", chunks=len(blocks))
-        _connector_ingest_logger.info(
-            "[ingest_connector] job=%s extraction OK: %d bloques family=%s",
-            job_id, len(blocks), family,
-        )
-
-        # ── FASE 2: Síntesis del pasaporte con LLM ────────────────────────────
-        await _emit("synthesis", "running")
-        synth_model    = model    or os.getenv("SYNTHESIS_MODEL",    "qwen2.5-coder:3b")
-        synth_provider = provider or os.getenv("BRAIN_LLM_PROVIDER", "ollama")
-
-        def _synthesize() -> str:
-            full_text = "\n\n".join(
-                b.get("content", "") for b in blocks if b.get("content")
-            ).strip()
-            result = DocumentSynthesizer().synthesize(
-                source=adapted.source_name,
-                file_type=adapted.file_type,
-                full_text=full_text,
-                blocks=blocks,
-                model=synth_model,
-                provider=synth_provider,
-                ingest_metadata={
-                    "ingest_origin": "connector",
-                    "connector_type": connector_type,
-                    "item_id": item_id,
-                    **adapted.metadata,
-                },
-                search_space_id=str(search_space_id),
-            )
-            return result.get("md_content", "") if isinstance(result, dict) else str(result)
-
-        new_md = await asyncio.to_thread(_synthesize)
-        if not new_md.strip():
-            await _emit("synthesis", "error", detail="El sintetizador devolvió contenido vacío")
-            return
-
-        await asyncio.to_thread(BrainWriter().write, adapted.source_name, new_md)
-        await _emit("synthesis", "ok")
-        _connector_ingest_logger.info(
-            "[ingest_connector] job=%s synthesis OK: %d chars", job_id, len(new_md)
-        )
-
-        # ── FASE 3: Indexación — chunks + embeddings + Qdrant + PostgreSQL BM25 ─
-        await _emit("indexing", "running")
-
-        def _vectorize() -> int:
-            results = IngestRouter(QdrantManager.get_instance().client).route(
-                md_content=new_md,
-                blocks=blocks,
-                source=adapted.source_name,
-                search_space_id=str(search_space_id),
-            )
-            if isinstance(results, dict):
-                return sum(v.get("chunks_created", 0) for v in results.values() if isinstance(v, dict))
-            return 0
-
-        total_chunks = await asyncio.to_thread(_vectorize)
-
-        import redis as _redis_lib
-        def _register_redis() -> None:
-            try:
-                r = _redis_lib.from_url(os.getenv("REDIS_APP_URL", "redis://redis:6379/0"))
-                now_iso = datetime.datetime.utcnow().isoformat()
-                r.set(f"brain:last_ingest:space:{search_space_id}", now_iso)
-                r.set(f"brain:last_ingest_doc:space:{search_space_id}", adapted.source_name)
-            except Exception as exc:
-                _connector_ingest_logger.warning(
-                    "[ingest_connector] job=%s Redis timestamp error: %s", job_id, exc
-                )
-
-        await asyncio.to_thread(_register_redis)
-        await _emit("indexing", "ok", chunks=total_chunks)
-
-        _connector_ingest_logger.info(
-            "[ingest_connector] job=%s DONE connector=%s item='%s' chunks=%d space=%d",
-            job_id, connector_type, item_id, total_chunks, search_space_id,
-        )
-
-    except PermissionError as exc:
-        _connector_ingest_logger.error(
-            "[ingest_connector] job=%s AUTH ERROR: %s", job_id, exc
-        )
-        await _emit("extraction", "error", detail=f"Token expirado: {exc}. Re-autentícalo en Configuración → Conectores.")
-    except Exception as exc:
-        _connector_ingest_logger.error(
-            "[ingest_connector] job=%s ERROR: %s", job_id, exc, exc_info=True
-        )
-        await _emit("indexing", "error", detail=str(exc))
-    finally:
-        await queue.put(None)
-
-
-# ── Job registry para ingesta SSE ─────────────────────────────────────────────
-_ingest_jobs: dict[str, dict] = {}
-_JOB_TTL = 3600.0  # 1 hora
-
-
-def _cleanup_stale_jobs() -> None:
-    """Elimina jobs con más de 1 hora de antigüedad."""
-    now = time.monotonic()
-    stale = [jid for jid, m in _ingest_jobs.items() if now - m["created_at"] > _JOB_TTL]
-    for jid in stale:
-        _ingest_jobs.pop(jid, None)
 
 
 # ── BUG-1 — Vocabulary CRUD endpoints ────────────────────────────────────────
