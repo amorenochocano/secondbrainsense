@@ -203,7 +203,9 @@ export default function BrainAdminPage() {
   });
 
   const ollamaModels = ollamaData?.models ?? [];
-  const cragProvider = (draft.CRAG_EVALUATOR_PROVIDER ?? draft.BRAIN_LLM_PROVIDER ?? "ollama") as BrainLlmProvider;
+  const cragProvider = (!draft.CRAG_EVALUATOR_PROVIDER || draft.CRAG_EVALUATOR_PROVIDER === "auto"
+    ? draft.BRAIN_LLM_PROVIDER
+    : draft.CRAG_EVALUATOR_PROVIDER ?? "ollama") as BrainLlmProvider;
   const cragEnabled  = draft.CRAG_EVALUATOR_ENABLED ?? false;
   const showLatencyWarning = cragEnabled && cragProvider === "ollama";
   const showCostWarning    = cragEnabled && (cragProvider === "anthropic" || cragProvider === "openai");
@@ -471,15 +473,15 @@ export default function BrainAdminPage() {
                 <div className="space-y-2">
                   <Label className="text-sm text-foreground/80">Provider evaluador</Label>
                   <Select
-                    value={draft.CRAG_EVALUATOR_PROVIDER ?? ""}
-                    onValueChange={(v) => set("CRAG_EVALUATOR_PROVIDER", v)}
+                    value={draft.CRAG_EVALUATOR_PROVIDER || "auto"}
+                    onValueChange={(v) => set("CRAG_EVALUATOR_PROVIDER", v === "auto" ? null : v)}
                     disabled={!cragEnabled}
                   >
                     <SelectTrigger className="bg-muted/50 border-input">
                       <SelectValue placeholder="Mismo que síntesis" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Mismo que síntesis (auto)</SelectItem>
+                      <SelectItem value="auto">Mismo que síntesis (auto)</SelectItem>
                       {BRAIN_LLM_PROVIDERS.map((p) => (
                         <SelectItem key={p} value={p}>{p}</SelectItem>
                       ))}

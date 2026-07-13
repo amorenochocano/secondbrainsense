@@ -2007,7 +2007,14 @@ async def ingest_stream(
 
     job_meta = _ingest_jobs.get(job_id)
     if job_meta is None:
-        raise HTTPException(status_code=404, detail=f"Job de ingesta no encontrado: {job_id}")
+        # El job ya terminó antes de que el cliente abriera el stream — devolver DONE limpio
+        async def _already_done():
+            yield "data: [DONE]\n\n"
+        return StreamingResponse(
+            _already_done(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     queue: asyncio.Queue = job_meta["queue"]
 

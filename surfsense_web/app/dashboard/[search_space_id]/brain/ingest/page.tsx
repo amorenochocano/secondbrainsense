@@ -10,7 +10,7 @@
 
 import { useState, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Link2,
   Sparkles,
@@ -542,9 +542,10 @@ function ConnectorTab({ spaceId, selectedModel, isIngesting, onStartJob }: Conne
 // ─── Página principal ─────────────────────────────────────────────────────────
 
 export default function BrainIngestPage() {
-  const params  = useParams<{ search_space_id: string }>();
-  const spaceId = params.search_space_id;
-  const router  = useRouter();
+  const params       = useParams<{ search_space_id: string }>();
+  const spaceId      = params.search_space_id;
+  const router       = useRouter();
+  const queryClient  = useQueryClient();
 
   // ── Estado compartido ────────────────────────────────────────────────────────
   const [selectedModel, setSelectedModel] = useState("auto");
@@ -588,8 +589,9 @@ export default function BrainIngestPage() {
   const handlePipelineComplete = useCallback(() => {
     setIsIngesting(false);
     setIngestDone(true);
+    queryClient.invalidateQueries({ queryKey: cacheKeys.brain.list(Number(spaceId)) });
     toast("Ingesta completada", { description: "Documento disponible en el Brain." });
-  }, []);
+  }, [queryClient, spaceId]);
 
   const handlePipelineError = useCallback((err: Error) => {
     setIsIngesting(false);
