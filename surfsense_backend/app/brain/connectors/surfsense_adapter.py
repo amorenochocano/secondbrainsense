@@ -66,6 +66,7 @@ def get_family(connector_type: str) -> str | None:
     return CONNECTOR_FAMILIES.get(connector_type.upper())
 
 
+
 def is_brain_supported(connector_type: str) -> bool:
     """True si el conector tiene soporte en el pipeline Brain."""
     return connector_type.upper() in CONNECTOR_FAMILIES
@@ -407,6 +408,9 @@ class SurfSenseRecordAdapter:
             },
             is_known_format=True,
         )
+
+    # fetch_record_item eliminado: la ingesta de Jira/Confluence usa
+    # brain_ingest_native_task con credenciales nativas (env vars), no el token MCP.
 
 
 def _serialize_record_to_markdown(

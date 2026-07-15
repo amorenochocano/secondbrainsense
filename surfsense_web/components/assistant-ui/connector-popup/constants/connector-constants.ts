@@ -104,14 +104,14 @@ export const OAUTH_CONNECTORS = [
 	{
 		id: "jira-connector",
 		title: "Jira",
-		description: "Rework in progress.",
+		description: "Agente de chat: busca y crea issues en tiempo real. Para ingestar tickets al Brain, usa Brain → Ingestar → Fuentes.",
 		connectorType: EnumConnectorName.JIRA_CONNECTOR,
 		authEndpoint: "/api/v1/auth/mcp/jira/connector/add/",
 	},
 	{
 		id: "confluence-connector",
 		title: "Confluence",
-		description: "Rework in progress.",
+		description: "Agente de chat: busca páginas en tiempo real. Para ingestar páginas al Brain, usa Brain → Ingestar → Fuentes.",
 		connectorType: EnumConnectorName.CONFLUENCE_CONNECTOR,
 		authEndpoint: "/api/v1/auth/confluence/connector/add/",
 	},

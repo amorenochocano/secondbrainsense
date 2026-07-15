@@ -47,21 +47,8 @@ async def _fetch_account_metadata(
 ) -> dict[str, Any]:
     """Fetch display-friendly account metadata after a successful token exchange.
 
-    DCR services (Linear, Jira, ClickUp) issue MCP-scoped tokens that cannot
-    call their standard REST/GraphQL APIs — metadata discovery for those
-    happens at runtime through MCP tools instead.
-
-    Pre-configured services (Slack, Airtable) use standard OAuth tokens that
-    *can* call their APIs, so we extract metadata here.
-
     Failures are logged but never block connector creation.
     """
-    from app.services.mcp_oauth.registry import MCP_SERVICES
-
-    svc = MCP_SERVICES.get(service_key)
-    if not svc or svc.supports_dcr:
-        return {}
-
     import httpx
 
     meta: dict[str, Any] = {}
@@ -70,9 +57,6 @@ async def _fetch_account_metadata(
         if service_key == "slack":
             team_info = token_json.get("team", {})
             meta["team_id"] = team_info.get("id", "")
-            # TODO: oauth.v2.user.access only returns team.id, not
-            # team.name.  To populate team_name, add "team:read" scope
-            # and call GET /api/team.info here.
             meta["team_name"] = team_info.get("name", "")
             if meta["team_name"]:
                 meta["display_name"] = meta["team_name"]
@@ -96,6 +80,16 @@ async def _fetch_account_metadata(
                         resp.status_code,
                     )
 
+        elif service_key in ("jira", "confluence"):
+            # Atlassian OAuth 3LO tokens are compatible with the REST API.
+            # Call accessible-resources to get cloud_id and site URL.
+            cloud_id, base_url, site_name = await _fetch_atlassian_cloud_id(access_token)
+            if cloud_id:
+                meta["cloud_id"] = cloud_id
+                meta["base_url"] = base_url
+                meta["site_name"] = site_name
+                meta["display_name"] = site_name or cloud_id
+
     except Exception:
         logger.warning(
             "Failed to fetch account metadata for %s (non-blocking)",
@@ -104,6 +98,49 @@ async def _fetch_account_metadata(
         )
 
     return meta
+
+
+async def _fetch_atlassian_cloud_id(
+    access_token: str,
+    timeout: float = 15.0,
+) -> tuple[str, str, str]:
+    """
+    Llama a la API accessible-resources de Atlassian para obtener cloud_id y site URL.
+
+    Returns:
+        (cloud_id, base_url, site_name) — vacíos si falla o no hay sitios.
+    """
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(
+                "https://api.atlassian.com/oauth/token/accessible-resources",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+        if resp.status_code != 200:
+            logger.warning(
+                "Atlassian accessible-resources returned %d (non-blocking)", resp.status_code
+            )
+            return "", "", ""
+
+        resources = resp.json()
+        if not resources:
+            return "", "", ""
+
+        # Tomar el primer sitio (el usuario puede tener varios)
+        site = resources[0]
+        cloud_id = site.get("id", "")
+        site_name = site.get("name", "")
+        site_url = site.get("url", "")
+        base_url = site_url or (
+            f"https://api.atlassian.com/ex/jira/{cloud_id}" if cloud_id else ""
+        )
+        return cloud_id, base_url, site_name
+
+    except Exception:
+        logger.warning("Error calling Atlassian accessible-resources (non-blocking)", exc_info=True)
+        return "", "", ""
 
 
 _state_manager: OAuthStateManager | None = None

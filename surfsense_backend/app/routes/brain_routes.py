@@ -2308,6 +2308,146 @@ async def ingest_connector_item(
     return {"job_id": job_id, "status": "queued", "background": True}
 
 
+# ── Ingesta nativa Jira / Confluence ─────────────────────────────────────────
+#
+# Separada del flujo MCP-OAuth (que es solo para agentes de chat).
+# Usa credenciales REST API configuradas en .env por el administrador.
+
+_NATIVE_CONNECTORS = {
+    "JIRA_CONNECTOR": {
+        "env_vars": ["JIRA_URL", "JIRA_USER", "JIRA_API_TOKEN"],
+        "label": "Jira",
+        "item_label": "Issue key (ej: TEC-123)",
+    },
+    "CONFLUENCE_CONNECTOR": {
+        "env_vars": ["CONFLUENCE_URL", "CONFLUENCE_USER", "CONFLUENCE_API_TOKEN"],
+        "label": "Confluence",
+        "item_label": "Page ID o título",
+    },
+}
+
+
+def _native_connector_configured(connector_type: str) -> bool:
+    """True si todas las env vars del conector nativo están presentes y no vacías."""
+    import os
+    meta = _NATIVE_CONNECTORS.get(connector_type.upper())
+    if not meta:
+        return False
+    return all(bool(os.getenv(v, "").strip()) for v in meta["env_vars"])
+
+
+@router.get("/native-connectors/status")
+async def native_connectors_status(
+    _: User = Depends(current_active_user),
+):
+    """
+    Estado de los conectores nativos (Jira, Confluence) para ingesta Brain.
+
+    Devuelve si las credenciales REST API están configuradas en .env.
+    No requiere autenticación OAuth — son credenciales de instancia.
+
+    Response:
+        connectors: dict con el estado de cada conector nativo.
+    """
+    import os
+
+    result = {}
+    for ctype, meta in _NATIVE_CONNECTORS.items():
+        configured = _native_connector_configured(ctype)
+        missing = [v for v in meta["env_vars"] if not os.getenv(v, "").strip()]
+        result[ctype] = {
+            "configured": configured,
+            "label": meta["label"],
+            "item_label": meta["item_label"],
+            "missing_env_vars": missing if not configured else [],
+        }
+
+    return {"connectors": result}
+
+
+class IngestNativeConnectorRequest(BaseModel):
+    """Body de POST /ingest/native/{connector_type}."""
+    item_id:        str
+    filename:       str
+    search_space_id: int
+    model:    str | None = None
+    provider: str | None = None
+
+
+@router.post("/ingest/native/{connector_type}")
+async def ingest_native_connector_item(
+    connector_type: str,
+    body: IngestNativeConnectorRequest,
+    current_user: User = Depends(current_active_user),
+    db: AsyncSession = Depends(get_async_session),
+):
+    """
+    Ingesta un ítem de Jira o Confluence al Brain usando credenciales nativas.
+
+    A diferencia de /ingest/connector/{connector_type} (que usa el conector
+    MCP-OAuth del usuario para agentes de chat), este endpoint usa credenciales
+    REST API configuradas en .env por el administrador:
+      - Jira:       JIRA_URL, JIRA_USER, JIRA_API_TOKEN
+      - Confluence: CONFLUENCE_URL, CONFLUENCE_USER, CONFLUENCE_API_TOKEN
+
+    Flujo de 4 fases (SSE via /ingest/stream?job_id=<id>):
+      1. extraction   — JiraConnector/ConfluenceConnector fetch_item()
+      2. synthesis    — DocumentSynthesizer → pasaporte .md
+      3. chunking     — BrainWriter + IngestRouter
+      4. vectorization — Qdrant confirmado
+    """
+    from app.tasks.celery_tasks.brain_ingest_tasks import brain_ingest_native_task
+
+    ctype = connector_type.upper()
+
+    if ctype not in _NATIVE_CONNECTORS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Conector '{ctype}' no tiene soporte de ingesta nativa. "
+                f"Soportados: {', '.join(_NATIVE_CONNECTORS.keys())}."
+            ),
+        )
+
+    if not _native_connector_configured(ctype):
+        import os
+        missing = [
+            v for v in _NATIVE_CONNECTORS[ctype]["env_vars"]
+            if not os.getenv(v, "").strip()
+        ]
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"El conector nativo {_NATIVE_CONNECTORS[ctype]['label']} no está configurado. "
+                f"El administrador debe definir en .env: {', '.join(missing)}."
+            ),
+        )
+
+    await _require_space_access(body.search_space_id, db, current_user)
+
+    job_id = str(uuid.uuid4())
+
+    _connector_ingest_logger.info(
+        "[ingest_native] CELERY job=%s connector=%s item_id=%s filename='%s' space=%d user=%s",
+        job_id, ctype, body.item_id, body.filename, body.search_space_id, current_user.id,
+    )
+
+    brain_ingest_native_task.apply_async(
+        kwargs={
+            "task_id":         job_id,
+            "connector_type":  ctype,
+            "item_id":         body.item_id,
+            "filename":        body.filename,
+            "search_space_id": body.search_space_id,
+            "model":           body.model,
+            "provider":        body.provider,
+        },
+        task_id=job_id,
+    )
+
+    return {"job_id": job_id, "status": "queued", "background": True}
+
+
 # ── BUG-1 — Vocabulary CRUD endpoints ────────────────────────────────────────
 #
 # Helper: convierte search_space_id → scope label esperado por el frontend.

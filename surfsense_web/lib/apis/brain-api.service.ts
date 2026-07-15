@@ -16,6 +16,10 @@ import {
   type AvailableConnectorsResponse,
   ingestConnectorRequest,
   type IngestConnectorRequest,
+  nativeConnectorsStatusResponse,
+  type NativeConnectorsStatusResponse,
+  ingestNativeRequest,
+  type IngestNativeRequest,
   ingestFromTextRequest,
   type IngestFromTextRequest,
   ingestFromTextResponse,
@@ -390,6 +394,38 @@ class BrainApiService {
     });
     return baseApiService.post(
       BRAIN_ENDPOINTS.INGEST_CONNECTOR(connectorType),
+      ingestJobResponse,
+      { body: parsed },
+    );
+  };
+
+  /**
+   * Estado de conectores nativos (Jira, Confluence).
+   * Indica si las credenciales REST API están configuradas en .env.
+   */
+  getNativeConnectorsStatus = async (): Promise<NativeConnectorsStatusResponse> => {
+    return baseApiService.get(
+      BRAIN_ENDPOINTS.NATIVE_CONNECTORS_STATUS,
+      nativeConnectorsStatusResponse,
+    );
+  };
+
+  /**
+   * Inicia la ingesta nativa de un ítem de Jira o Confluence.
+   * Usa credenciales REST API del servidor (.env), no el token MCP del usuario.
+   */
+  ingestNative = async (
+    connectorType: string,
+    request: IngestNativeRequest,
+  ): Promise<IngestJobResponse> => {
+    const parsed = ingestNativeRequest.parse(request);
+    log.info("Iniciando ingesta nativa", {
+      connector_type: connectorType,
+      item_id: parsed.item_id,
+      filename: parsed.filename,
+    });
+    return baseApiService.post(
+      BRAIN_ENDPOINTS.INGEST_NATIVE(connectorType),
       ingestJobResponse,
       { body: parsed },
     );

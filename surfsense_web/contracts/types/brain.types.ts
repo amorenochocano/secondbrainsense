@@ -368,6 +368,30 @@ export const ingestConnectorRequest = z.object({
 });
 export type IngestConnectorRequest = z.infer<typeof ingestConnectorRequest>;
 
+/** Estado de un conector nativo (Jira, Confluence) — credenciales en .env */
+export const nativeConnectorStatusSchema = z.object({
+  configured:        z.boolean(),
+  label:             z.string(),
+  item_label:        z.string(),
+  missing_env_vars:  z.array(z.string()),
+});
+export type NativeConnectorStatus = z.infer<typeof nativeConnectorStatusSchema>;
+
+export const nativeConnectorsStatusResponse = z.object({
+  connectors: z.record(z.string(), nativeConnectorStatusSchema),
+});
+export type NativeConnectorsStatusResponse = z.infer<typeof nativeConnectorsStatusResponse>;
+
+/** Request para ingestar un ítem de conector nativo (Jira, Confluence) */
+export const ingestNativeRequest = z.object({
+  item_id:         z.string().min(1),
+  filename:        z.string().min(1),
+  search_space_id: z.number().int().positive(),
+  model:           z.string().optional(),
+  provider:        z.string().optional(),
+});
+export type IngestNativeRequest = z.infer<typeof ingestNativeRequest>;
+
 // F5 — Ingesta de texto desde chat (sin re-fetch del conector)
 export const ingestFromTextRequest = z.object({
   content:         z.string().min(1),

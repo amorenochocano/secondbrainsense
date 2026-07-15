@@ -18,7 +18,6 @@ import {
   FileText,
   Brain,
   Database,
-  Code2,
   CheckCircle2,
   Clock,
   ExternalLink,
@@ -29,6 +28,9 @@ import {
   Plug,
   RefreshCw,
   AlertCircle,
+  BookMarked,
+  Ticket,
+  Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -55,7 +57,7 @@ import {
   BRAIN_INGEST_EXTENSION_CATEGORY,
   type IngestCategory,
 } from "@/lib/brain/constants";
-import type { AvailableConnector } from "@/contracts/types/brain.types";
+import type { AvailableConnector, NativeConnectorStatus } from "@/contracts/types/brain.types";
 import {
   ConnectorIndicator,
   type ConnectorIndicatorHandle,
@@ -311,6 +313,212 @@ function FormatBadge({ isKnown }: { isKnown: boolean }) {
   );
 }
 
+// ─── Sub-componente: formulario de ítem nativo ───────────────────────────────
+
+interface NativeItemFormProps {
+  connectorType: string;
+  status: NativeConnectorStatus;
+  spaceId: string;
+  selectedModel: string;
+  isIngesting: boolean;
+  onStartJob: (jobId: string) => void;
+  icon: React.ReactNode;
+  placeholder: string;
+  filenameHint: string;
+}
+
+function NativeItemForm({
+  connectorType, status, spaceId, selectedModel, isIngesting,
+  onStartJob, icon, placeholder, filenameHint,
+}: NativeItemFormProps) {
+  const [itemId, setItemId] = useState("");
+  const [filename, setFilename] = useState("");
+
+  const ingestMutation = useMutation({
+    mutationFn: () => {
+      if (!itemId.trim())   throw new Error("Introduce el ID del ítem");
+      if (!filename.trim()) throw new Error("Introduce el nombre del fichero");
+      return brainApiService.ingestNative(connectorType, {
+        item_id:         itemId.trim(),
+        filename:        filename.trim(),
+        search_space_id: Number(spaceId),
+        model:           selectedModel === "auto" ? undefined : selectedModel,
+      });
+    },
+    onSuccess: (res) => { onStartJob(res.job_id); },
+    onError: (err: Error) => toast.error(`Error al iniciar ingesta de ${status.label}`, { description: err.message }),
+  });
+
+  const canIngest = status.configured && !!itemId.trim() && !!filename.trim() && !isIngesting && !ingestMutation.isPending;
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+      {/* Cabecera con estado */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {icon}
+          <h3 className="text-sm font-semibold text-foreground">{status.label}</h3>
+        </div>
+        {status.configured ? (
+          <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+            <CheckCircle2 className="h-2.5 w-2.5" /> Configurado
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
+            <AlertCircle className="h-2.5 w-2.5" /> No configurado
+          </span>
+        )}
+      </div>
+
+      {/* Aviso si no está configurado */}
+      {!status.configured && (
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3 space-y-1">
+          <p className="text-xs text-amber-300 font-medium flex items-center gap-1.5">
+            <Settings className="h-3 w-3 shrink-0" />
+            El administrador debe configurar las siguientes variables en <code className="font-mono">.env</code>:
+          </p>
+          <ul className="ml-4 space-y-0.5">
+            {status.missing_env_vars.map((v) => (
+              <li key={v} className="text-[11px] font-mono text-amber-400">{v}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Formulario — solo visible si está configurado */}
+      {status.configured && (
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">{status.item_label}</label>
+            <Input
+              placeholder={placeholder}
+              value={itemId}
+              onChange={(e) => setItemId(e.target.value)}
+              className="font-mono text-sm bg-muted/50 border-input focus:border-violet-500 text-foreground placeholder:text-muted-foreground/60"
+              disabled={isIngesting}
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs text-muted-foreground">Nombre de fichero destino</label>
+            <Input
+              placeholder={filenameHint}
+              value={filename}
+              onChange={(e) => setFilename(e.target.value)}
+              className="font-mono text-sm bg-muted/50 border-input focus:border-violet-500 text-foreground placeholder:text-muted-foreground/60"
+              disabled={isIngesting}
+            />
+          </div>
+          <Button
+            onClick={() => ingestMutation.mutate()}
+            disabled={!canIngest}
+            className="gap-2 bg-violet-600 hover:bg-violet-500 text-white"
+          >
+            {ingestMutation.isPending ? <><Loader2 className="h-4 w-4 animate-spin" /> Iniciando…</> :
+             isIngesting ? <><Loader2 className="h-4 w-4 animate-spin" /> Procesando…</> :
+             <><ArrowRight className="h-4 w-4" /> Ingestar</>}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Sub-componente: tab Fuentes estructuradas (Jira / Confluence) ────────────
+
+interface NativeSourcesTabProps {
+  spaceId: string;
+  selectedModel: string;
+  isIngesting: boolean;
+  onStartJob: (jobId: string) => void;
+}
+
+function NativeSourcesTab({ spaceId, selectedModel, isIngesting, onStartJob }: NativeSourcesTabProps) {
+  const { data, isLoading, isError, refetch, isFetching } = useQuery({
+    queryKey: ["brain", "native-connectors-status"],
+    queryFn: () => brainApiService.getNativeConnectorsStatus(),
+    staleTime: 120_000,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground text-sm">
+        <Loader2 className="h-4 w-4 animate-spin" /> Comprobando configuración…
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
+        <AlertCircle className="h-6 w-6 text-red-400" />
+        <p className="text-sm text-red-400">Error al obtener el estado de las fuentes.</p>
+        <Button variant="outline" size="sm" onClick={() => refetch()} className="gap-1.5">
+          <RefreshCw className="h-3.5 w-3.5" /> Reintentar
+        </Button>
+      </div>
+    );
+  }
+
+  const connectors = data?.connectors ?? {};
+
+  return (
+    <div className="space-y-4">
+      {/* Descripción */}
+      <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          <span className="font-medium text-foreground/80">Fuentes estructuradas</span> — ingesta contenido de Jira y Confluence directamente al Brain.
+          El contenido se descarga, sintetiza y queda disponible para búsqueda semántica en el chat.
+          <br />
+          <span className="text-[10px] mt-1 block text-muted-foreground/70">
+            Estas fuentes usan credenciales REST API configuradas por el administrador. Son independientes de los conectores de chat (que usan OAuth MCP).
+          </span>
+        </p>
+        <div className="flex justify-end mt-2">
+          <button
+            type="button"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground/80 transition-colors"
+          >
+            <RefreshCw className={cn("h-2.5 w-2.5", isFetching && "animate-spin")} />
+            Actualizar estado
+          </button>
+        </div>
+      </div>
+
+      {/* Jira */}
+      {connectors["JIRA_CONNECTOR"] && (
+        <NativeItemForm
+          connectorType="JIRA_CONNECTOR"
+          status={connectors["JIRA_CONNECTOR"]}
+          spaceId={spaceId}
+          selectedModel={selectedModel}
+          isIngesting={isIngesting}
+          onStartJob={onStartJob}
+          icon={<Ticket className="h-4 w-4 text-blue-400" />}
+          placeholder="TEC-123"
+          filenameHint="tec-123-descripcion.md"
+        />
+      )}
+
+      {/* Confluence */}
+      {connectors["CONFLUENCE_CONNECTOR"] && (
+        <NativeItemForm
+          connectorType="CONFLUENCE_CONNECTOR"
+          status={connectors["CONFLUENCE_CONNECTOR"]}
+          spaceId={spaceId}
+          selectedModel={selectedModel}
+          isIngesting={isIngesting}
+          onStartJob={onStartJob}
+          icon={<BookMarked className="h-4 w-4 text-blue-400" />}
+          placeholder="123456  o  Título de la página"
+          filenameHint="nombre-pagina.md"
+        />
+      )}
+    </div>
+  );
+}
+
 // ─── Sub-componente: tab Conector ────────────────────────────────────────────
 
 interface ConnectorTabProps {
@@ -391,8 +599,11 @@ function ConnectorTab({ spaceId, selectedModel, isIngesting, onStartJob }: Conne
     );
   }
 
-  const available = (connectors?.connectors ?? []).filter((c) => c.ok);
-  const unavailable = (connectors?.connectors ?? []).filter((c) => !c.ok);
+  // Solo conectores de almacenamiento (OneDrive, Drive, Dropbox).
+  // Jira y Confluence tienen su propia pestaña "Fuentes" con credenciales nativas.
+  const storageConnectors = (connectors?.connectors ?? []).filter((c) => c.family === "storage");
+  const available = storageConnectors.filter((c) => c.ok);
+  const unavailable = storageConnectors.filter((c) => !c.ok);
 
   return (
     <div className="space-y-4">
@@ -404,7 +615,7 @@ function ConnectorTab({ spaceId, selectedModel, isIngesting, onStartJob }: Conne
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Plug className="h-4 w-4 text-violet-400" />
-            <h2 className="text-sm font-semibold text-foreground">Conector externo</h2>
+            <h2 className="text-sm font-semibold text-foreground">Almacenamiento en la nube</h2>
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -431,8 +642,8 @@ function ConnectorTab({ spaceId, selectedModel, isIngesting, onStartJob }: Conne
           <div className="flex flex-col items-center justify-center gap-3 py-6 text-center">
             <Plug className="h-8 w-8 text-muted-foreground/40" />
             <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground/70">Sin conectores configurados</p>
-              <p className="text-xs text-muted-foreground">Conecta Confluence, Jira, GitHub u OneDrive para ingestar desde fuentes externas.</p>
+              <p className="text-sm font-medium text-foreground/70">Sin conectores de almacenamiento</p>
+              <p className="text-xs text-muted-foreground">Conecta OneDrive, Google Drive o Dropbox para ingestar ficheros desde la nube.</p>
             </div>
             <Button
               variant="outline"
@@ -698,7 +909,7 @@ export default function BrainIngestPage() {
 
           {/* Sub-tabs de modo de ingesta */}
           <Tabs value={activeTab} onValueChange={(v) => { setActiveTab(v); resetIngest(); }} className="w-full">
-            <TabsList className="grid w-full grid-cols-4 max-w-lg">
+            <TabsList className="grid w-full grid-cols-5 max-w-2xl">
               <TabsTrigger value="url"       className="gap-1.5 text-xs">
                 <Link2 className="h-3.5 w-3.5" /> URL
               </TabsTrigger>
@@ -708,8 +919,11 @@ export default function BrainIngestPage() {
               <TabsTrigger value="path"      className="gap-1.5 text-xs">
                 <Server className="h-3.5 w-3.5" /> Ruta local
               </TabsTrigger>
+              <TabsTrigger value="native"    className="gap-1.5 text-xs">
+                <Ticket className="h-3.5 w-3.5" /> Fuentes
+              </TabsTrigger>
               <TabsTrigger value="connector" className="gap-1.5 text-xs">
-                <Plug className="h-3.5 w-3.5" /> Conector
+                <Plug className="h-3.5 w-3.5" /> Nube
               </TabsTrigger>
             </TabsList>
 
@@ -875,7 +1089,17 @@ export default function BrainIngestPage() {
               </div>
             </TabsContent>
 
-            {/* ── Conector ─────────────────────────────────────────────────────── */}
+            {/* ── Fuentes estructuradas (Jira / Confluence) ──────────────────── */}
+            <TabsContent value="native" className="mt-4">
+              <NativeSourcesTab
+                spaceId={spaceId}
+                selectedModel={selectedModel}
+                isIngesting={isIngesting}
+                onStartJob={startJob}
+              />
+            </TabsContent>
+
+            {/* ── Nube (OneDrive, Drive, Dropbox) ──────────────────────────────── */}
             <TabsContent value="connector" className="mt-4">
               <ConnectorTab
                 spaceId={spaceId}

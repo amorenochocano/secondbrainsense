@@ -333,28 +333,32 @@ def brain_ingest_connector_task(
 
         _publish(r, channel, "extraction", "running")
 
-        if family != "storage":
+        if family == "storage":
+            class _FakeConnector:
+                def __init__(self, cid, ctype, cfg):
+                    self.id = cid
+                    self.connector_type = ctype
+                    self.config = cfg
+
+            fake_conn = _FakeConnector(connector_id, connector_type, connector_config)
+            adapter   = SurfSenseStorageAdapter()
+
+            loop    = asyncio.new_event_loop()
+            adapted = loop.run_until_complete(
+                adapter.fetch_item(connector_record=fake_conn, item_id=item_id,
+                                   filename=filename, db=None)
+            )
+            loop.close()
+
+        else:
+            # Familia 'record' (Jira, Confluence) y 'chat' usan rutas separadas:
+            # - Jira/Confluence → POST /ingest/native/{connector_type} → brain_ingest_native_task
+            # - Chat → no implementado aún
             _publish(r, channel, "extraction", "error",
-                     detail=f"Ingesta automática no implementada para familia '{family}'.")
-            final["detail"] = f"Familia '{family}' no soportada aún"
+                     detail=f"Familia '{family}' no soportada en este endpoint. "
+                            f"Usa /ingest/native/ para Jira y Confluence.")
+            final["detail"] = f"Familia '{family}' no soportada en brain_ingest_connector"
             return final
-
-        class _FakeConnector:
-            def __init__(self, cid, ctype, cfg):
-                self.id = cid
-                self.connector_type = ctype
-                self.config = cfg
-
-        fake_conn = _FakeConnector(connector_id, connector_type, connector_config)
-        adapter   = SurfSenseStorageAdapter()
-
-        # fetch_item es async — lo ejecutamos en el event loop del worker
-        loop    = asyncio.new_event_loop()
-        adapted = loop.run_until_complete(
-            adapter.fetch_item(connector_record=fake_conn, item_id=item_id,
-                               filename=filename, db=None)
-        )
-        loop.close()
 
         blocks = adapted.blocks
         if not blocks:
@@ -388,6 +392,145 @@ def brain_ingest_connector_task(
 
     except Exception as exc:
         log.error("[brain_ingest_connector] task=%s ERROR: %s", task_id, exc, exc_info=True)
+        _publish(r, channel, "indexing", "error", detail=str(exc))
+        final["detail"] = str(exc)
+        return final
+
+    finally:
+        _finish(r, channel, final)
+
+
+# ── Tarea ingesta nativa Jira / Confluence ────────────────────────────────────
+
+@celery_app.task(name="brain_ingest_native", bind=True)
+def brain_ingest_native_task(
+    self,
+    task_id: str,
+    connector_type: str,
+    item_id: str,
+    filename: str,
+    search_space_id: int,
+    model: str | None,
+    provider: str | None,
+) -> dict:
+    """
+    Ingesta un ítem de Jira o Confluence al Brain usando credenciales nativas.
+
+    Usa JiraConnector / ConfluenceConnector que leen JIRA_URL/JIRA_USER/JIRA_API_TOKEN
+    (o CONFLUENCE_*) directamente de env vars — sin token MCP OAuth.
+
+    Esta tarea es independiente de brain_ingest_connector_task, que gestiona
+    los conectores storage/MCP del usuario (OneDrive, Drive, Dropbox…).
+    """
+    r = _get_redis()
+    channel = f"{_CHANNEL_PREFIX}{task_id}"
+    final: dict = {"task_id": task_id, "status": "error", "chunks": 0}
+
+    try:
+        ctype = connector_type.upper()
+        _publish(r, channel, "extraction", "running")
+
+        if ctype == "JIRA_CONNECTOR":
+            from app.brain.connectors.jira_connector import JiraConnector
+            from app.brain.extractors.factory import ExtractorFactory
+            import tempfile
+            from pathlib import Path
+
+            connector = JiraConnector()
+            fetched = connector.fetch_item(item_id)
+            virtual_ext = fetched.virtual_ext
+
+            with tempfile.NamedTemporaryFile(
+                suffix=virtual_ext, delete=False, mode="w", encoding="utf-8"
+            ) as tmp:
+                tmp.write(fetched.text)
+                tmp_path = tmp.name
+
+            try:
+                blocks = ExtractorFactory.extract(tmp_path)
+            finally:
+                try:
+                    Path(tmp_path).unlink()
+                except OSError:
+                    pass
+
+            source_name = fetched.slug
+            file_type = virtual_ext.lstrip(".")
+            extra_meta = fetched.metadata
+
+        elif ctype == "CONFLUENCE_CONNECTOR":
+            from app.brain.connectors.confluence_connector import ConfluenceConnector
+            from app.brain.extractors.factory import ExtractorFactory
+            import tempfile
+            from pathlib import Path
+
+            connector = ConfluenceConnector()
+            fetched = connector.fetch_item(item_id)
+            virtual_ext = fetched.virtual_ext
+
+            with tempfile.NamedTemporaryFile(
+                suffix=virtual_ext, delete=False, mode="w", encoding="utf-8"
+            ) as tmp:
+                tmp.write(fetched.text)
+                tmp_path = tmp.name
+
+            try:
+                blocks = ExtractorFactory.extract(tmp_path)
+            finally:
+                try:
+                    Path(tmp_path).unlink()
+                except OSError:
+                    pass
+
+            source_name = fetched.slug
+            file_type = virtual_ext.lstrip(".")
+            extra_meta = fetched.metadata
+
+        else:
+            _publish(r, channel, "extraction", "error",
+                     detail=f"Conector nativo '{ctype}' no implementado.")
+            final["detail"] = f"Conector nativo '{ctype}' no soportado"
+            return final
+
+        if not blocks:
+            _publish(r, channel, "extraction", "error",
+                     detail="Sin contenido extraíble del ítem")
+            final["detail"] = "Sin contenido extraíble"
+            return final
+
+        _publish(r, channel, "extraction", "ok", chunks=len(blocks))
+        log.info("[brain_ingest_native] task=%s connector=%s item_id=%s blocks=%d",
+                 task_id, ctype, item_id, len(blocks))
+
+        final = _synthesize_and_index(
+            r=r, channel=channel, task_id=task_id,
+            blocks=blocks, source=source_name, file_type=file_type,
+            search_space_id=search_space_id,
+            model=model, provider=provider,
+            ingest_metadata={
+                "ingest_origin": "native_connector",
+                "connector_type": ctype,
+                "item_id": item_id,
+                **extra_meta,
+            },
+        )
+        return final
+
+    except ValueError as exc:
+        log.error("[brain_ingest_native] task=%s NOT FOUND: %s", task_id, exc)
+        _publish(r, channel, "extraction", "error", detail=str(exc))
+        final["detail"] = str(exc)
+        return final
+
+    except ConnectionError as exc:
+        log.error("[brain_ingest_native] task=%s CONNECTION ERROR: %s", task_id, exc)
+        _publish(r, channel, "extraction", "error",
+                 detail=f"Error de conexión con la API: {exc}")
+        final["detail"] = str(exc)
+        return final
+
+    except Exception as exc:
+        log.error("[brain_ingest_native] task=%s ERROR: %s", task_id, exc, exc_info=True)
         _publish(r, channel, "indexing", "error", detail=str(exc))
         final["detail"] = str(exc)
         return final
