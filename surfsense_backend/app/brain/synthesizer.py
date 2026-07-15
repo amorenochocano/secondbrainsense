@@ -420,7 +420,7 @@ class DocumentSynthesizer:
                     effective_provider, effective_model,
                 )
                 return {
-                    "md_content": md_final,
+                    "md_content": _inject_search_space_id(md_final, search_space_id),
                     "tags": final_tags if final_tags else tags_base,
                     "entities": final_entities if final_entities else entities,
                     "drill_down_triggers": triggers,
@@ -581,7 +581,7 @@ class DocumentSynthesizer:
                     prompt_tier, effective_provider,
                 )
                 return {
-                    "md_content": md_final,
+                    "md_content": _inject_search_space_id(md_final, search_space_id),
                     "tags": final_tags if final_tags else tags_base,
                     "entities": final_entities if final_entities else entities,
                     "drill_down_triggers": triggers,

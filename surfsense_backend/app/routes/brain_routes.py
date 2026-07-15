@@ -2084,7 +2084,9 @@ async def _list_passports_for_space(search_space_id: int) -> list[dict]:
     passports = []
     for doc in all_docs:
         slug = doc.get("filename", "")
-        if space_sources and slug not in space_sources:
+        # Qdrant almacena source sin extensión (.md); filename incluye .md → normalizar
+        slug_no_ext = slug[:-3] if slug.endswith(".md") else slug
+        if space_sources and slug_no_ext not in space_sources:
             continue
         passports.append({
             "source":     slug,
